@@ -1,0 +1,12 @@
+opam-version: "2.0.0"
+name: "chase-lev"
+synopsis: "Verification of Chase-Lev deque"
+
+maintainer: ["TODO"]
+
+depends: [
+  "coq-iris" { (= "4.0.0") }
+]
+
+build: [make "-j%{jobs}%" ]
+install: [make "install"]
