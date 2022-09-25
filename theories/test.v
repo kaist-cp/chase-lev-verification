@@ -1,5 +1,5 @@
 From stdpp Require Import countable list.
-From smr.lang Require Import notation.
+(*From smr.lang Require Import notation.*)
 From iris.algebra Require Export coPset.
 From iris.prelude Require Import options.
 
