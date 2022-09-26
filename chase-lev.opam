@@ -6,6 +6,7 @@ maintainer: ["TODO"]
 
 depends: [
   "coq-iris" { (= "4.0.0") }
+  "coq-iris-heap-lang" { (= "4.0.0") }
 ]
 
 build: [make "-j%{jobs}%" ]
