@@ -1,10 +1,4 @@
-From iris.algebra Require Import excl auth list.
-From iris.bi.lib Require Import fractional.
-From iris.base_logic.lib Require Import invariants.
-From iris.program_logic Require Import atomic.
-From iris.proofmode Require Import proofmode.
-From iris.heap_lang Require Import proofmode notation atomic_heap.
-From iris.prelude Require Import options.
+From iris.heap_lang Require Import notation.
 
 (*
   We use a finite length list without resizing;
@@ -18,10 +12,6 @@ From iris.prelude Require Import options.
 *)
 
 Section code.
-  Context `{!heapGS Σ, !atomic_heap} (N : namespace).
-  Notation iProp := (iProp Σ).
-  Import atomic_heap.notation.
-
   Definition CAP_CONST := #99.
   Definition new_deque : val :=
     λ: <>,
