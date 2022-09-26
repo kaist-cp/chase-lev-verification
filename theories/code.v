@@ -1,4 +1,10 @@
-From iris.heap_lang Require Import notation.
+From iris.algebra Require Import excl auth list.
+From iris.bi.lib Require Import fractional.
+From iris.base_logic.lib Require Import invariants.
+From iris.program_logic Require Import atomic.
+From iris.proofmode Require Import proofmode.
+From iris.heap_lang Require Import proofmode notation atomic_heap.
+From iris.prelude Require Import options.
 
 (*
   We use a finite length list without resizing;
@@ -59,3 +65,57 @@ Section code.
       else if: CAS (top "deque") "t" ("t" + #1) then !("array" +ₗ "t")
       else #().
 End code.
+
+Section proof.
+  Context `{!heapGS Σ} (N : namespace).
+  Notation iProp := (iProp Σ).
+  Let dequeN := N .@ "deque".
+
+  Definition deque_inv (γq : gname) (arr top bot : loc) : iProp :=
+    ∃ (t b : nat),
+      top ↦ #t ∗ bot ↦ #b.
+
+  Definition is_deque (γq : gname) (q : val) : iProp :=
+    ∃ (arr top bot : loc),
+      ⌜q = (#arr, #top, #bot)%V⌝ ∗
+      inv dequeN (deque_inv γq arr top bot).
+  Global Instance is_deque_persistent γq q :
+    Persistent (is_deque γq q) := _.
+
+  Definition deque_content (γq : gname) (q : val)
+  (l : list val) : iProp :=
+    True.
+
+  Definition own_deque (γq : gname) (q : val) : iProp :=
+    True.
+  
+  Lemma loop_spec v :
+    {{{ True }}} loop #v {{{ RET #(); False }}}.
+  Proof.
+    iIntros (Φ) "_ HΦ". wp_rec. iLöb as "IH". wp_rec.
+    by iApply "IH".
+  Qed.
+
+  Lemma push_spec γq q (v : val) :
+    is_deque γq q -∗
+    own_deque γq q -∗
+    <<< ∀∀ l : list val, deque_content γq q l >>>
+      push q v @ ↑N
+    <<< True, RET #() >>>.
+  Proof.
+    iIntros "#Is Own" (Φ) "AU".
+    iDestruct "Is" as (arr top bot) "[%Is Inv]". subst.
+    wp_lam. unfold code.arr, code.bot. wp_pures.
+
+    (* load bot *)
+    wp_bind (! _)%E.
+    iInv "Inv" as (t b) ">(t↦ & b↦)". wp_load.
+    iModIntro. iSplitL "t↦ b↦".
+    { unfold deque_inv. eauto with iFrame. }
+    wp_pures. case_bool_decide.
+    { wp_pures. iApply loop_spec; eauto. iNext. by iIntros. }
+    wp_pures.
+
+    (* store value *)
+  Admitted.
+End proof.
