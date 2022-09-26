@@ -18,10 +18,10 @@ From iris.prelude Require Import options.
 *)
 
 Section code.
-  Definition CAP_CONST := #99.
+  Definition CAP_CONST := 10.
   Definition new_deque : val :=
     λ: <>,
-      let: "array" := AllocN CAP_CONST #0 in
+      let: "array" := AllocN #CAP_CONST #0 in
       ("array", ref #0, ref #0). (* array, top, bottom *)
   
   Definition arr : val := λ: "deque", Fst (Fst "deque").
@@ -33,7 +33,7 @@ Section code.
     λ: "deque" "v",
       let: "array" := arr "deque" in
       let: "b" := !(bot "deque") in
-      if: CAP_CONST ≤ "b" then loop #() else
+      if: #CAP_CONST ≤ "b" then loop #() else
       "array" +ₗ "b" <- "v" ;;
       bot "deque" <- "b" + #1.
   
@@ -72,8 +72,12 @@ Section proof.
   Let dequeN := N .@ "deque".
 
   Definition deque_inv (γq : gname) (arr top bot : loc) : iProp :=
-    ∃ (t b : nat),
-      top ↦ #t ∗ bot ↦ #b.
+    (∃ (t b : nat), top ↦ #t ∗ bot ↦ #b) ∗
+    (* the following is not true, we need big sepL ∗.
+    ∀ (i : nat), ⌜0 ≤ i < CAP_CONST⌝ -∗
+      ∃ v, (arr +ₗ i) ↦ v.
+      *)
+    True.
 
   Definition is_deque (γq : gname) (q : val) : iProp :=
     ∃ (arr top bot : loc),
@@ -109,13 +113,16 @@ Section proof.
 
     (* load bot *)
     wp_bind (! _)%E.
-    iInv "Inv" as (t b) ">(t↦ & b↦)". wp_load.
-    iModIntro. iSplitL "t↦ b↦".
+    iInv "Inv" as "[>Invtb >Invarr]".
+    iDestruct "Invtb" as (t b) "[t↦ b↦]". wp_load.
+    iModIntro. iSplitL "t↦ b↦ Invarr".
     { unfold deque_inv. eauto with iFrame. }
     wp_pures. case_bool_decide.
     { wp_pures. iApply loop_spec; eauto. iNext. by iIntros. }
     wp_pures.
 
     (* store value *)
+    wp_bind (_ <- _)%E.
+    iInv "Inv" as "[>Invtb >Invarr]".
   Admitted.
 End proof.
