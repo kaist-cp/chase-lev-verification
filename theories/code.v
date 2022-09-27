@@ -18,7 +18,7 @@ From iris.prelude Require Import options.
 *)
 
 Section code.
-  Definition CAP_CONST := 10.
+  Definition CAP_CONST : nat := 10.
   Definition new_deque : val :=
     λ: <>,
       let: "array" := AllocN #CAP_CONST #0 in
@@ -72,12 +72,9 @@ Section proof.
   Let dequeN := N .@ "deque".
 
   Definition deque_inv (γq : gname) (arr top bot : loc) : iProp :=
-    (∃ (t b : nat), top ↦ #t ∗ bot ↦ #b) ∗
-    (* the following is not true, we need big sepL ∗.
-    ∀ (i : nat), ⌜0 ≤ i < CAP_CONST⌝ -∗
-      ∃ v, (arr +ₗ i) ↦ v.
-      *)
-    True.
+    ∃ (t b : nat) (l : list val),
+      top ↦ #t ∗ bot ↦ #b ∗ arr ↦∗ l ∗
+      ⌜length l = CAP_CONST⌝.
 
   Definition is_deque (γq : gname) (q : val) : iProp :=
     ∃ (arr top bot : loc),
@@ -86,8 +83,7 @@ Section proof.
   Global Instance is_deque_persistent γq q :
     Persistent (is_deque γq q) := _.
 
-  Definition deque_content (γq : gname) (q : val)
-  (l : list val) : iProp :=
+  Definition deque_content (γq : gname) (l : list val) : iProp :=
     True.
 
   Definition own_deque (γq : gname) (q : val) : iProp :=
@@ -100,10 +96,27 @@ Section proof.
     by iApply "IH".
   Qed.
 
+  Lemma new_deque_spec :
+    {{{ True }}}
+      new_deque #()
+    {{{ γq q, RET q; is_deque γq q ∗ deque_content γq [] }}}.
+  Proof.
+    iIntros (Φ) "_ HΦ".
+    wp_lam. wp_alloc arr as "arr↦". { unfold CAP_CONST. lia. }
+    wp_pures. wp_alloc b as "b↦". wp_alloc t as "t↦".
+    iMod (own_alloc ε) as (γq) "●". { admit. }
+    iMod (inv_alloc dequeN _ (deque_inv γq arr t b)
+      with "[t↦ b↦ arr↦]") as "Inv".
+    { iNext. iExists 0, 0, _. iFrame.
+      by rewrite replicate_length. }
+    wp_pures. iModIntro. iApply "HΦ".
+    iSplit; auto. iExists _, _, _; iSplit; auto.
+  Admitted.
+
   Lemma push_spec γq q (v : val) :
     is_deque γq q -∗
     own_deque γq q -∗
-    <<< ∀∀ l : list val, deque_content γq q l >>>
+    <<< ∀∀ l : list val, deque_content γq l >>>
       push q v @ ↑N
     <<< True, RET #() >>>.
   Proof.
@@ -113,9 +126,8 @@ Section proof.
 
     (* load bot *)
     wp_bind (! _)%E.
-    iInv "Inv" as "[>Invtb >Invarr]".
-    iDestruct "Invtb" as (t b) "[t↦ b↦]". wp_load.
-    iModIntro. iSplitL "t↦ b↦ Invarr".
+    iInv "Inv" as (t1 b1 l1) "(t↦ & >b↦ & REST)". wp_load.
+    iModIntro. iSplitL "t↦ b↦ REST".
     { unfold deque_inv. eauto with iFrame. }
     wp_pures. case_bool_decide.
     { wp_pures. iApply loop_spec; eauto. iNext. by iIntros. }
@@ -123,6 +135,17 @@ Section proof.
 
     (* store value *)
     wp_bind (_ <- _)%E.
-    iInv "Inv" as "[>Invtb >Invarr]".
+    iInv "Inv" as (t2 b2 l2) "(t↦ & b↦ & >arr↦ & >%HL)".
+    iApply (wp_store_offset with "arr↦").
+    { rewrite lookup_lt_is_Some. lia. }
+    iNext. iIntros "arr↦". iModIntro.
+    iSplitL "t↦ b↦ arr↦".
+    { iNext. iExists _, _, _; iFrame. by rewrite insert_length. }
+    wp_pures.
+
+    (* store bot *)
+    iInv "Inv" as (t3 b3 l3) "(t↦ & >b↦ & REST)". wp_store.
+    iModIntro. iSplitL "t↦ b↦ REST".
+    { unfold deque_inv. iNext. iExists _,_,_; iFrame. admit. }
   Admitted.
 End proof.
