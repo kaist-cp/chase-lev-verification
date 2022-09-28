@@ -145,7 +145,8 @@ Section proof.
 
     (* store bot *)
     iInv "Inv" as (t3 b3 l3) "(t↦ & >b↦ & REST)". wp_store.
+    assert ((Z.of_nat b1 + 1)%Z = Z.of_nat (b1 + 1)) as -> by lia.
     iModIntro. iSplitL "t↦ b↦ REST".
-    { unfold deque_inv. iNext. iExists _,_,_; iFrame. admit. }
+    { unfold deque_inv. iExists _,_,_; iFrame. }
   Admitted.
 End proof.
