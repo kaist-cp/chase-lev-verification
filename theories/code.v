@@ -66,14 +66,22 @@ Section code.
       else #().
 End code.
 
+Class dequeG Σ := DequeG {
+  deque_tokG :> inG Σ (authR (optionUR (exclR (listO valO)))) }.
+Definition dequeΣ : gFunctors :=
+  #[GFunctor (authR (optionUR (exclR (listO valO))))].
+Global Instance subG_dequeΣ {Σ} : subG dequeΣ Σ → dequeG Σ.
+Proof. solve_inG. Qed.
+
 Section proof.
-  Context `{!heapGS Σ} (N : namespace).
+  Context `{!heapGS Σ, !dequeG Σ} (N : namespace).
   Notation iProp := (iProp Σ).
   Let dequeN := N .@ "deque".
 
   Definition deque_inv (γq : gname) (arr top bot : loc) : iProp :=
     ∃ (t b : nat) (l : list val),
       top ↦ #t ∗ bot ↦ #b ∗ arr ↦∗ l ∗
+      own γq (● (Some ((Excl (take b (drop t l)) )))) ∗
       ⌜length l = CAP_CONST⌝.
 
   Definition is_deque (γq : gname) (q : val) : iProp :=
@@ -84,7 +92,7 @@ Section proof.
     Persistent (is_deque γq q) := _.
 
   Definition deque_content (γq : gname) (l : list val) : iProp :=
-    True.
+    (own γq (◯ Excl' l))%I.
 
   Definition own_deque (γq : gname) (q : val) : iProp :=
     True.
@@ -104,21 +112,22 @@ Section proof.
     iIntros (Φ) "_ HΦ".
     wp_lam. wp_alloc arr as "arr↦". { unfold CAP_CONST. lia. }
     wp_pures. wp_alloc b as "b↦". wp_alloc t as "t↦".
-    iMod (own_alloc ε) as (γq) "●". { admit. }
+    iMod (own_alloc (● (Some (Excl [])) ⋅ ◯ (Some (Excl []))))
+      as (γq) "[● ◯]". { by apply auth_both_valid_discrete. }
     iMod (inv_alloc dequeN _ (deque_inv γq arr t b)
-      with "[t↦ b↦ arr↦]") as "Inv".
-    { iNext. iExists 0, 0, _. iFrame.
-      by rewrite replicate_length. }
+      with "[t↦ b↦ arr↦ ●]") as "Inv".
+    { iNext. iExists 0, 0, _.
+      rewrite take_0. iFrame "t↦ b↦ arr↦". iSplit; auto. }
     wp_pures. iModIntro. iApply "HΦ".
     iSplit; auto. iExists _, _, _; iSplit; auto.
-  Admitted.
+  Qed.
 
   Lemma push_spec γq q (v : val) :
     is_deque γq q -∗
     own_deque γq q -∗
     <<< ∀∀ l : list val, deque_content γq l >>>
       push q v @ ↑N
-    <<< True, RET #() >>>.
+    <<< deque_content γq (l ++ [v]), RET #() >>>.
   Proof.
     iIntros "#Is Own" (Φ) "AU".
     iDestruct "Is" as (arr top bot) "[%Is Inv]". subst.
@@ -135,12 +144,14 @@ Section proof.
 
     (* store value *)
     wp_bind (_ <- _)%E.
-    iInv "Inv" as (t2 b2 l2) "(t↦ & b↦ & >arr↦ & >%HL)".
+    iInv "Inv" as (t2 b2 l2) "(t↦ & b↦ & >arr↦ & ● & >%HL)".
     iApply (wp_store_offset with "arr↦").
     { rewrite lookup_lt_is_Some. lia. }
     iNext. iIntros "arr↦". iModIntro.
-    iSplitL "t↦ b↦ arr↦".
-    { iNext. iExists _, _, _; iFrame. by rewrite insert_length. }
+    iSplitL "t↦ b↦ arr↦ ●".
+    { iNext. iExists _, _, _. iFrame "t↦ b↦ arr↦".
+      iSplit; auto.
+      2: by rewrite insert_length. admit. }
     wp_pures.
 
     (* store bot *)
