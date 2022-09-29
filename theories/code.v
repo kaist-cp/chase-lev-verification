@@ -3,7 +3,7 @@ From iris.bi.lib Require Import fractional.
 From iris.base_logic.lib Require Import invariants.
 From iris.program_logic Require Import atomic.
 From iris.proofmode Require Import proofmode.
-From iris.heap_lang Require Import proofmode notation atomic_heap.
+From iris.heap_lang Require Import proofmode notation.
 From iris.prelude Require Import options.
 
 (*
@@ -80,7 +80,7 @@ Section proof.
 
   Definition deque_inv (γq : gname) (arr top bot : loc) : iProp :=
     ∃ (t b : nat) (l : list val),
-      top ↦ #t ∗ bot ↦ #b ∗ arr ↦∗ l ∗
+      top ↦ #t ∗ bot ↦{#1/2} #b ∗ arr ↦∗{#1/2} l ∗
       own γq (● (Some ((Excl (take b (drop t l)) )))) ∗
       ⌜length l = CAP_CONST⌝.
 
@@ -92,10 +92,14 @@ Section proof.
     Persistent (is_deque γq q) := _.
 
   Definition deque_content (γq : gname) (l : list val) : iProp :=
+    (* TODO: use ghost_var? *)
     (own γq (◯ Excl' l))%I.
 
   Definition own_deque (γq : gname) (q : val) : iProp :=
-    True.
+    ∃ (arr top bot : loc) (b : nat) (l : list val),
+      ⌜q = (#arr, #top, #bot)%V⌝ ∗
+      ⌜length l = CAP_CONST⌝ ∗
+      bot ↦{#1/2} #b ∗ arr ↦∗{#1/2} l.
   
   Lemma loop_spec v :
     {{{ True }}} loop #v {{{ RET #(); False }}}.
@@ -107,19 +111,24 @@ Section proof.
   Lemma new_deque_spec :
     {{{ True }}}
       new_deque #()
-    {{{ γq q, RET q; is_deque γq q ∗ deque_content γq [] }}}.
+    {{{ γq q, RET q;
+      is_deque γq q ∗ deque_content γq [] ∗
+      own_deque γq q
+    }}}.
   Proof.
     iIntros (Φ) "_ HΦ".
     wp_lam. wp_alloc arr as "arr↦". { unfold CAP_CONST. lia. }
-    wp_pures. wp_alloc b as "b↦". wp_alloc t as "t↦".
+    wp_pures. wp_alloc b as "[b↦1 b↦2]". wp_alloc t as "t↦".
     iMod (own_alloc (● (Some (Excl [])) ⋅ ◯ (Some (Excl []))))
       as (γq) "[● ◯]". { by apply auth_both_valid_discrete. }
     iMod (inv_alloc dequeN _ (deque_inv γq arr t b)
-      with "[t↦ b↦ arr↦ ●]") as "Inv".
+      with "[t↦ b↦1 arr↦ ●]") as "Inv".
     { iNext. iExists 0, 0, _.
-      rewrite take_0. iFrame "t↦ b↦ arr↦". iSplit; auto. }
+      rewrite take_0. iFrame "t↦ b↦1 arr↦". iSplit; auto. }
     wp_pures. iModIntro. iApply "HΦ".
-    iSplit; auto. iExists _, _, _; iSplit; auto.
+    iSplit; auto.
+    - iExists _, _, _; iSplit; auto.
+    - iSplitR "b↦2"; auto. iExists _,_,_,0; iSplit; auto.
   Qed.
 
   Lemma push_spec γq q (v : val) :
@@ -130,21 +139,33 @@ Section proof.
     <<< deque_content γq (l ++ [v]), RET #() >>>.
   Proof.
     iIntros "#Is Own" (Φ) "AU".
-    iDestruct "Is" as (arr top bot) "[%Is Inv]". subst.
+      iDestruct "Own" as (arr top bot b l) "(-> & %HL & b👑 & arr👑)".
+      iDestruct "Is" as (arr' top' bot') "[%Is Inv]".
+      injection Is as [= <- <- <-].
     wp_lam. unfold code.arr, code.bot. wp_pures.
 
     (* load bot *)
     wp_bind (! _)%E.
-    iInv "Inv" as (t1 b1 l1) "(t↦ & >b↦ & REST)". wp_load.
-    iModIntro. iSplitL "t↦ b↦ REST".
-    { unfold deque_inv. eauto with iFrame. }
+    iInv "Inv" as (t1 b1 l1) "(t↦ & >b↦ & >arr↦ & ● & >%HL1)".
+      iDestruct (mapsto_agree with "b↦ b👑") as "%".
+      injection H as [= <-]. clear b.
+      assert (l = l1) by admit.
+      subst. clear HL.
+    wp_load.
+      
+    iModIntro. iSplitL "t↦ b↦ arr↦ ●".
+    { iExists _,_,_. iFrame "t↦ b↦ arr↦". iSplit; auto. }
     wp_pures. case_bool_decide.
     { wp_pures. iApply loop_spec; eauto. iNext. by iIntros. }
+    rename H into BOUND.
     wp_pures.
 
     (* store value *)
     wp_bind (_ <- _)%E.
-    iInv "Inv" as (t2 b2 l2) "(t↦ & b↦ & >arr↦ & ● & >%HL)".
+    iInv "Inv" as (t2 b2 l2) "(t↦ & >b↦ & >arr↦ & ● & >%HL2)".
+      iDestruct (mapsto_agree with "b↦ Own") as "%".
+      injection H as [=].
+      rewrite <- H in BOUND. rewrite <- H. clear H b1 t1 l1.
     iApply (wp_store_offset with "arr↦").
     { rewrite lookup_lt_is_Some. lia. }
     iNext. iIntros "arr↦". iModIntro.
@@ -155,9 +176,16 @@ Section proof.
     wp_pures.
 
     (* store bot *)
-    iInv "Inv" as (t3 b3 l3) "(t↦ & >b↦ & REST)". wp_store.
-    assert ((Z.of_nat b1 + 1)%Z = Z.of_nat (b1 + 1)) as -> by lia.
+    iInv "Inv" as (t3 b3 l3) "(t↦ & >b↦ & arr↦ & >● & HL3)".
+      iDestruct (mapsto_agree with "b↦ Own") as "%".
+      injection H as [=].
+      rewrite <- H in BOUND. rewrite <- H. clear H b2 t2 HL2 l2.
+    iMod "AU" as (l) "[Cont [_ Commit]]".
+      unfold deque_content.
+
+    iCombine "Own b↦" as "b↦". wp_store.
+    assert ((Z.of_nat b3 + 1)%Z = Z.of_nat (b3 + 1)) as -> by lia.
     iModIntro. iSplitL "t↦ b↦ REST".
-    { unfold deque_inv. iExists _,_,_; iFrame. }
+    { unfold deque_inv. iExists _,_,_; iFrame. admit. }
   Admitted.
 End proof.
