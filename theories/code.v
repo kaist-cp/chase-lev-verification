@@ -76,8 +76,11 @@ Proof. solve_inG. Qed.
 Section proof.
   Context `{!heapGS Σ, !dequeG Σ} (N : namespace).
   Notation iProp := (iProp Σ).
+  (* TODO: do we really need submasks? *)
   Let dequeN := N .@ "deque".
 
+  (* TODO: change l to ↦∗{#1} & make another ghost_var in deque_content?
+     (see msqueue) *)
   Definition deque_inv (γq : gname) (arr top bot : loc) : iProp :=
     ∃ (t b : nat) (l : list val),
       top ↦ #t ∗ bot ↦{#1/2} #b ∗ arr ↦∗{#1/2} l ∗
@@ -91,8 +94,8 @@ Section proof.
   Global Instance is_deque_persistent γq q :
     Persistent (is_deque γq q) := _.
 
+  (* TODO: use ghost_var? *)
   Definition deque_content (γq : gname) (l : list val) : iProp :=
-    (* TODO: use ghost_var? *)
     (own γq (◯ Excl' l))%I.
 
   Definition own_deque (γq : gname) (q : val) : iProp :=
@@ -117,18 +120,19 @@ Section proof.
     }}}.
   Proof.
     iIntros (Φ) "_ HΦ".
-    wp_lam. wp_alloc arr as "arr↦". { unfold CAP_CONST. lia. }
+    wp_lam. wp_alloc arr as "[arr↦1 arr↦2]". { unfold CAP_CONST. lia. }
     wp_pures. wp_alloc b as "[b↦1 b↦2]". wp_alloc t as "t↦".
     iMod (own_alloc (● (Some (Excl [])) ⋅ ◯ (Some (Excl []))))
       as (γq) "[● ◯]". { by apply auth_both_valid_discrete. }
     iMod (inv_alloc dequeN _ (deque_inv γq arr t b)
-      with "[t↦ b↦1 arr↦ ●]") as "Inv".
+      with "[t↦ b↦1 arr↦1 ●]") as "Inv".
     { iNext. iExists 0, 0, _.
-      rewrite take_0. iFrame "t↦ b↦1 arr↦". iSplit; auto. }
+      rewrite take_0. iFrame "t↦ b↦1 arr↦1". iSplit; auto. }
     wp_pures. iModIntro. iApply "HΦ".
     iSplit; auto.
     - iExists _, _, _; iSplit; auto.
-    - iSplitR "b↦2"; auto. iExists _,_,_,0; iSplit; auto.
+    - iSplitR "b↦2 arr↦2"; auto.
+      iExists _,_,_,0,_; iFrame. auto.
   Qed.
 
   Lemma push_spec γq q (v : val) :
@@ -163,29 +167,37 @@ Section proof.
     (* store value *)
     wp_bind (_ <- _)%E.
     iInv "Inv" as (t2 b2 l2) "(t↦ & >b↦ & >arr↦ & ● & >%HL2)".
-      iDestruct (mapsto_agree with "b↦ Own") as "%".
+      iDestruct (mapsto_agree with "b↦ b👑") as "%".
       injection H as [=].
-      rewrite <- H in BOUND. rewrite <- H. clear H b1 t1 l1.
+      assert (l1 = l2) by admit.
+      subst. rewrite <- H in BOUND. rewrite <- H. clear H b1 t1 HL1.
+    iCombine "arr↦ arr👑" as "arr↦".
     iApply (wp_store_offset with "arr↦").
     { rewrite lookup_lt_is_Some. lia. }
-    iNext. iIntros "arr↦". iModIntro.
+    iNext. iIntros "[arr↦ arr👑]". iModIntro.
     iSplitL "t↦ b↦ arr↦ ●".
-    { iNext. iExists _, _, _. iFrame "t↦ b↦ arr↦".
-      iSplit; auto.
+    { iNext. iExists _, _, _. iFrame "t↦ b↦ arr↦". iSplit; auto.
       2: by rewrite insert_length. admit. }
     wp_pures.
 
     (* store bot *)
-    iInv "Inv" as (t3 b3 l3) "(t↦ & >b↦ & arr↦ & >● & HL3)".
-      iDestruct (mapsto_agree with "b↦ Own") as "%".
-      injection H as [=].
-      rewrite <- H in BOUND. rewrite <- H. clear H b2 t2 HL2 l2.
+    iInv "Inv" as (t3 b3 l3) "(t↦ & >b↦ & arr↦ & >● & >%HL3)".
+      iDestruct (mapsto_agree with "b↦ b👑") as "%".
+      injection H as [=]. assert (b3 = b2) by lia.
+      rewrite <- H in BOUND. rewrite <- H0. clear H H0 b2 t2.
+      assert (<[b3:=v]> l2 = l3) by admit. subst.
     iMod "AU" as (l) "[Cont [_ Commit]]".
       unfold deque_content.
+      assert ((take b3 (drop t3 (<[b3:=v]> l2))) = l) by admit. subst.
+      (* (◯ Excl' (take b3 (drop t3 (<[b3:=v]> l2)) ++ [v])) is too long! what a mess! *)
 
-    iCombine "Own b↦" as "b↦". wp_store.
-    assert ((Z.of_nat b3 + 1)%Z = Z.of_nat (b3 + 1)) as -> by lia.
+    iCombine "b↦ b👑" as "b↦". wp_store.
+    replace (Z.of_nat b3 + 1)%Z with (Z.of_nat (b3 + 1)) by lia.
+    (* should update ghost 
+    iMod "Commit".
+
     iModIntro. iSplitL "t↦ b↦ REST".
-    { unfold deque_inv. iExists _,_,_; iFrame. admit. }
+    { unfold deque_inv. iExists _,_,_; admit. }
+    *)
   Admitted.
 End proof.
