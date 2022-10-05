@@ -31,27 +31,33 @@ Section slice.
   Context {A : Type}.
   Implicit Types l : list A.
 
-  (* k elements starting from i-th *)
-  Definition slice l i k := take k (drop i l).
+  (* l[i..j-1] *)
+  Definition slice l i j := take (j-i) (drop i l).
 
-  Lemma slice_0 l i : slice l i 0 = [].
-  Proof. auto. Qed.
-
-  Lemma slice_insert_right l i k j v :
-    j >= i + k →
-    slice (<[j:=v]> l) i k = slice l i k.
+  Lemma slice_to_nil xl i j : (i >= j) → slice xl i j = [].
   Proof.
     unfold slice. intros H.
-    rewrite drop_insert_le; [|lia].
-    rewrite take_insert; auto. lia.
+    replace (j-i) with 0 by lia. auto.
   Qed.
 
-  Lemma slice_extend_right l i k v :
-    l !! (i+k) = Some v →
-    slice l i (S k) = slice l i k ++ [v].
+  Lemma slice_insert_right l i j k v :
+    j ≤ k →
+    slice (<[k:=v]> l) i j = slice l i j.
   Proof.
     unfold slice. intros H.
-    rewrite (take_S_r _ _ v); auto.
-    by rewrite lookup_drop.
+    destruct (decide (i ≤ j)).
+    - rewrite drop_insert_le; [|lia].
+      rewrite take_insert; auto. lia.
+    - replace (j-i) with 0 by lia. auto.
+  Qed.
+
+  Lemma slice_extend_right l i j v :
+    i <= j → l !! j = Some v →
+    slice l i (S j) = slice l i j ++ [v].
+  Proof.
+    unfold slice. intros Hij Hj.
+    replace (S j - i) with (S (j - i)) by lia.
+    rewrite (take_S_r _ _ v); auto. rewrite lookup_drop.
+    replace (i + (j - i)) with j by lia. auto.
   Qed.
 End slice.
