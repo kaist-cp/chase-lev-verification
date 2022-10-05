@@ -83,9 +83,10 @@ Section proof.
   (* TODO: change l to ↦∗{#1} & make another ghost_var in deque_content?
      (see msqueue) *)
   Definition deque_inv (γq : gname) (arr top bot : loc) : iProp :=
-    ∃ (t k : nat) (l : list val),
-      top ↦ #t ∗ bot ↦{#1/2} #(t+k) ∗ arr ↦∗{#1/2} l ∗
-      ghost_var γq (1/2) (slice l t k) ∗
+    ∃ (t b : nat) (l : list val),
+      top ↦ #t ∗ bot ↦{#1/2} #b ∗ arr ↦∗{#1/2} l ∗
+      ghost_var γq (1/2) (slice l t b) ∗
+      ⌜t ≤ b⌝ ∗
       ⌜length l = CAP_CONST⌝.
 
   Definition is_deque (γq : gname) (q : val) : iProp :=
@@ -139,7 +140,7 @@ Section proof.
     <<< ∀∀ l : list val, deque_content γq l >>>
       push q v @ ↑N
     <<< deque_content γq (l ++ [v]) ∗ own_deque γq q, RET #() >>>.
-  Proof.
+  Proof with auto; try lia.
     iIntros "#Is Own" (Φ) "AU".
       iDestruct "Own" as (arr top bot b l) "(-> & %HL & b👑 & arr👑)".
       iDestruct "Is" as (arr' top' bot') "[%Is Inv]".
@@ -148,67 +149,58 @@ Section proof.
 
     (* load bot *)
     wp_bind (! _)%E.
-    iInv "Inv" as (t1 k1 l1) "(t↦ & >b↦ & >arr↦ & γ & >%HL1)".
+    iInv "Inv" as (t1 b1 l1) ">(t↦ & b↦ & arr↦ & γ & [%Htb1 %HL1])".
       iDestruct (mapsto_agree with "b↦ b👑") as "%".
-      injection H as [= <-]. clear b.
-      iDestruct (array_agree with "arr↦ arr👑") as "%"; [lia|].
+        injection H as [=]. apply Nat2Z.inj in H.
+      iDestruct (array_agree with "arr↦ arr👑") as "%"...
       subst. clear HL.
     wp_load.
-      
+    
     iModIntro. iSplitL "t↦ b↦ arr↦ γ".
-    { iExists _,_,_. iFrame "t↦ b↦ arr↦". auto. }
+      { iExists _,_,_. iFrame "t↦ b↦ arr↦"... }
     wp_pures. case_bool_decide.
-    { wp_pures. iApply loop_spec; eauto. iNext. by iIntros. }
-    assert (¬ (CAP_CONST ≤ t1 + k1)) by lia.
-      rename H0 into BOUND. clear H.
+      { wp_pures. iApply loop_spec... iNext. iIntros... }
+    assert (b < CAP_CONST)... rename H0 into BOUND. clear H.
     wp_pures.
 
     (* store value *)
     wp_bind (_ <- _)%E.
-    iInv "Inv" as (t2 k2 l2) ">(t↦ & b↦ & arr↦ & γ & %HL2)".
+    iInv "Inv" as (t2 b2 l2) ">(t↦ & b↦ & arr↦ & γ & [%Htb2 %HL2])".
       iDestruct (mapsto_agree with "b↦ b👑") as "%".
-      injection H as [=]. assert (t2+k2 = t1+k1) by lia.
-      iDestruct (array_agree with "arr↦ arr👑") as "%"; [lia|].
-      subst. rewrite <- H0 in BOUND. rewrite <- H. clear H H0 k1 t1 HL1.
+        injection H as [=]. apply Nat2Z.inj in H.
+      iDestruct (array_agree with "arr↦ arr👑") as "%"...
+      subst. clear t1 Htb1 HL1.
     iCombine "arr↦ arr👑" as "arr↦".
-    replace (Z.of_nat t2 + Z.of_nat k2)%Z with (Z.of_nat (t2 + k2))%Z; [|lia].
     iApply (wp_store_offset with "arr↦").
-      { rewrite lookup_lt_is_Some. lia. }
+      { rewrite lookup_lt_is_Some... }
     iNext. iIntros "[arr↦ arr👑]". iModIntro.
     iSplitL "t↦ b↦ arr↦ γ".
-    { iNext. iExists t2, k2, _.
-      replace (Z.of_nat t2 + Z.of_nat k2)%Z with (Z.of_nat (t2 + k2))%Z; [|lia].
-      iFrame "t↦ b↦ arr↦".
-      rewrite slice_insert_right; auto. iFrame.
-      by rewrite insert_length. }
+    { iNext. iExists t2, b, _. iFrame "t↦ b↦ arr↦".
+      rewrite slice_insert_right... iFrame. rewrite insert_length... }
     wp_pures.
+    replace (Z.of_nat b + 1)%Z with (Z.of_nat (S b))...
 
     (* store bot *)
-    iInv "Inv" as (t3 k3 l3) ">(t↦ & b↦ & arr↦ & γ1 & %HL3)".
-      replace (Z.of_nat t3 + Z.of_nat k3)%Z with (Z.of_nat (t3 + k3))%Z; [|lia].
+    iInv "Inv" as (t3 b3 l3) ">(t↦ & b↦ & arr↦ & γ1 & [%Htb3 %HL3])".
       iDestruct (mapsto_agree with "b↦ b👑") as "%".
-      injection H as [=]. assert (t3+k3 = t2+k2) by lia.
-      rewrite <- H0 in BOUND. rewrite <- H0. clear H H0 k2 t2.
+        injection H as [=]. apply Nat2Z.inj in H.
       iDestruct (array_agree with "arr↦ arr👑") as "%"; subst.
-        { rewrite insert_length. lia. }
+        { rewrite insert_length... }
+      rewrite insert_length in HL3. clear t2 Htb2 HL2.
     iMod "AU" as (l') "[Cont [_ Commit]]".
       unfold deque_content.
       iDestruct (ghost_var_agree with "γ1 Cont") as "%"; subst.
-      rewrite <- slice_extend_right; last first.
-        { rewrite list_lookup_insert; auto. lia. }
+      rewrite <- slice_extend_right... 2: rewrite list_lookup_insert...
     iCombine "b↦ b👑" as "b↦". wp_store.
     iDestruct "b↦" as "[b↦ b👑]".
-    iMod (ghost_var_update_2 (slice (<[t3 + k3:=v]> l) t3 (S k3))
-      with "γ1 Cont") as "[γ1 Cont]".
-      { by rewrite Qp.half_half. }
-    replace (Z.of_nat (t3 + k3) + 1)%Z with (Z.of_nat (t3 + (S k3)))%Z; [|lia].
+    iMod (ghost_var_update_2 (slice (<[b:=v]> l) t3 (S b))
+      with "γ1 Cont") as "[γ1 Cont]". { rewrite Qp.half_half... }
     iMod ("Commit" with "[Cont b👑 arr👑]") as "Φ".
-      { iFrame. iExists _,_,_,_,_; iFrame. repeat iSplit; auto. }
+    { iFrame. iExists _,_,_,(S b),_; iFrame. repeat iSplit...
+      rewrite insert_length... }
     iModIntro. iModIntro.
     
     iFrame. unfold deque_inv. iNext. iExists _,_,_.
-    iFrame "t↦ arr↦ γ1"; iSplit; auto.
-    replace (Z.of_nat t3 + Z.of_nat (S k3))%Z with (Z.of_nat (t3 + S k3))%Z; [|lia].
-    iFrame.
+    iFrame "t↦ arr↦ γ1"; iSplit... rewrite insert_length...
   Qed.
 End proof.
