@@ -32,12 +32,19 @@ Section slice.
   Implicit Types l : list A.
 
   (* l[i..j-1] *)
-  Definition slice l i j := take (j-i) (drop i l).
+  Definition slice l i j := take (j - i) (drop i l).
 
   Lemma slice_to_nil xl i j : (i >= j) → slice xl i j = [].
   Proof.
     unfold slice. intros H.
     replace (j-i) with 0 by lia. auto.
+  Qed.
+
+  Lemma slice_length l i j :
+    i ≤ j → j ≤ length l → length (slice l i j) = j - i.
+  Proof.
+    unfold slice. intros H1 H2.
+    rewrite take_length drop_length. lia.
   Qed.
 
   Lemma slice_insert_right l i j k v :
