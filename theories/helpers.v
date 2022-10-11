@@ -29,7 +29,6 @@ Section heap.
   Qed.
 End heap.
 
-(* TODO: move this to helpers.v *)
 Section Inbound.
   Definition deque_bound (t b : nat) (l : list val) :=
     t ≤ b ≤ CAP_CONST ∧ length l = CAP_CONST.
@@ -54,17 +53,23 @@ Section Inbound.
   Proof. unfold deque_bound. lia. Qed.
 End Inbound.
 
-Section slice.
+Section list.
   Context {A : Type}.
   Implicit Types l : list A.
 
-  (* l[i..j-1] *)
+  (* slice l i j = l[i..j-1] *)
   Definition slice l i j := take (j - i) (drop i l).
 
-  Lemma slice_to_nil xl i j : (i >= j) → slice xl i j = [].
+  Lemma slice_to_nil l i j : (i >= j) → slice l i j = [].
   Proof.
     unfold slice. intros H.
     replace (j-i) with 0 by lia. auto.
+  Qed.
+
+  Lemma slice_0 l j : slice l 0 j = take j l.
+  Proof.
+    unfold slice. rewrite drop_0.
+    by replace (j - 0) with j by lia.
   Qed.
 
   Lemma slice_length l i j :
@@ -97,6 +102,45 @@ Section slice.
 
   Lemma slice_shrink_left l i j v :
     i < j → l !! i = Some v →
-    slice l i j = [v] ++ slice l (S i) j.
-  Admitted.
-End slice.
+    slice l i j = v :: slice l (S i) j.
+  Proof.
+    unfold slice. intros Hij Hi.
+    replace (j - i) with (S (j - S i)) by lia.
+    erewrite drop_S; eauto.
+  Qed.
+
+  Lemma take_slice l i j :
+    i ≤ j ≤ length l → take j l = take i l ++ slice l i j.
+  Proof.
+    intros H. induction i.
+    { simpl. by rewrite slice_0. }
+    assert (is_Some (l !! i)) as [x Hi].
+    { apply lookup_lt_is_Some. lia. }
+    erewrite take_S_r; eauto.
+    list_simplifier. rewrite <- slice_shrink_left; auto; try lia.
+    apply IHi; lia.
+  Qed.
+
+  (* prefix *)
+
+  Lemma take_prefix i l :
+  take i l `prefix_of` l.
+  Proof.
+    revert i; induction l; intros.
+    - by rewrite take_nil.
+    - destruct i; simpl.
+      + apply prefix_nil.
+      + by apply prefix_cons.
+  Qed.
+
+  Lemma prefix_take l i j :
+    i ≤ j → (take i l) `prefix_of` (take j l).
+  Proof.
+    intros H.
+    destruct (decide (j ≤ length l)).
+    - rewrite (take_slice l i j); auto.
+      by apply prefix_app_r.
+    - replace (take j l) with l. 2: rewrite take_ge; auto; try lia.
+      apply take_prefix.
+  Qed.
+End list.
