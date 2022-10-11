@@ -139,7 +139,11 @@ Section RA.
     iDestruct (mono_nat_lb_own_valid with "N N'") as "[_ %Le]".
     assert (t2 ≤ t1). 1: do 2 case_decide; lia.
     iSplit; auto.
-  Admitted.
+    replace (take t1 l1) with (take t2 l1 ++ slice l1 t2 t1) in Pref.
+    - iPureIntro. eapply prefix_app_same_prefix; eauto.
+      do 2 rewrite take_length. lia.
+    - rewrite <- take_slice; auto; lia.
+  Qed.
 
   Lemma mono_deque_auth_insert γm l t b i v :
     t ≤ i →

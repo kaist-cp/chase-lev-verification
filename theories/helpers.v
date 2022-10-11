@@ -143,4 +143,11 @@ Section list.
     - replace (take j l) with l. 2: rewrite take_ge; auto; try lia.
       apply take_prefix.
   Qed.
+
+  Lemma prefix_app_same_prefix l1 l2 l3 :
+    l1 `prefix_of` l2 ++ l3 → length l1 = length l2 →
+    l1 = l2.
+  Proof.
+    induction l3 using rev_ind; intros.
+  Admitted.
 End list.
