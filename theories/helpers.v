@@ -2,6 +2,8 @@ From stdpp Require Import list.
 From iris.proofmode Require Import proofmode.
 From iris.heap_lang Require Import proofmode notation.
 
+Definition CAP_CONST : nat := 10.
+
 Section heap.
   Context `{!heapGS Σ} (N : namespace).
 
@@ -26,6 +28,31 @@ Section heap.
     iDestruct ("HInd" $! l2 with "[] [x1] [x2]") as "<-"; auto.
   Qed.
 End heap.
+
+(* TODO: move this to helpers.v *)
+Section Inbound.
+  Definition deque_bound (t b : nat) (l : list val) :=
+    t ≤ b ≤ CAP_CONST ∧ length l = CAP_CONST.
+
+  Lemma deque_bound_init l :
+    length l = CAP_CONST → deque_bound 0 0 l.
+  Proof.
+    intros H. unfold deque_bound. repeat split; auto.
+    unfold CAP_CONST. lia.
+  Qed.
+
+  Lemma deque_bound_insert t b l i v :
+    deque_bound t b l → deque_bound t b (<[i:=v]> l).
+  Proof. unfold deque_bound. by rewrite insert_length. Qed.
+
+  Lemma deque_bound_extend_right t b l :
+    deque_bound t b l → b < length l → deque_bound t (S b) l.
+  Proof. unfold deque_bound. lia. Qed.
+
+  Lemma deque_bound_shrink_left t b l : 
+    deque_bound t b l → t < b → deque_bound (S t) b l.
+  Proof. unfold deque_bound. lia. Qed.
+End Inbound.
 
 Section slice.
   Context {A : Type}.
@@ -67,4 +94,9 @@ Section slice.
     rewrite (take_S_r _ _ v); auto. rewrite lookup_drop.
     replace (i + (j - i)) with j by lia. auto.
   Qed.
+
+  Lemma slice_shrink_left l i j v :
+    i < j → l !! i = Some v →
+    slice l i j = [v] ++ slice l (S i) j.
+  Admitted.
 End slice.
