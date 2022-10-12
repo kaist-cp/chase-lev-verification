@@ -24,7 +24,7 @@ Section code.
   Definition new_deque : val :=
     λ: <>,
       let: "array" := AllocN #CAP_CONST #0 in
-      ("array", ref #0, ref #0). (* array, top, bottom *)
+      ("array", ref #1, ref #1). (* array, top, bottom *)
   
   Definition arr : val := λ: "deque", Fst (Fst "deque").
   Definition top : val := λ: "deque", Snd (Fst "deque").
@@ -93,7 +93,7 @@ Section RA.
   Definition mono_deque_auth_own (γm : gname) (l : list val) (t b : nat) : iProp :=
     ∃ (γl γtb : gname),
     ⌜γm = encode (γl, γtb)⌝ ∗
-    ⌜t ≤ b ≤ CAP_CONST ∧ length l = CAP_CONST⌝ ∗
+    ⌜1 ≤ t ≤ b ≤ CAP_CONST ∧ length l = CAP_CONST⌝ ∗
     mono_list_auth_own γl 1 (take t l) ∗
     mono_nat_auth_own γtb 1 (
       2 * t + (if decide(t < b) then 1 else 0)
@@ -102,21 +102,21 @@ Section RA.
   Definition mono_deque_lb_own (γm : gname) (l : list val) (t b : nat) : iProp :=
     ∃ (γl γtb : gname),
     ⌜γm = encode (γl, γtb)⌝ ∗
-    ⌜t ≤ b ≤ CAP_CONST ∧ length l = CAP_CONST⌝ ∗
+    ⌜1 ≤ t ≤ b ≤ CAP_CONST ∧ length l = CAP_CONST⌝ ∗
     mono_list_lb_own γl (take t l) ∗
     mono_nat_lb_own γtb (
       2 * t + (if decide(t < b) then 1 else 0)
     ).
 
   Lemma mono_deque_own_alloc l :
-    ⌜length l = CAP_CONST⌝ ==∗ ∃ γ, mono_deque_auth_own γ l 0 0.
+    ⌜length l = CAP_CONST⌝ ==∗ ∃ γ, mono_deque_auth_own γ l 1 1.
   Proof.
     iIntros (H).
-    iMod (mono_list_own_alloc []) as (γl) "[L _]".
-    iMod (mono_nat_own_alloc 0) as (γtb) "[N _]".
+    iMod (mono_list_own_alloc (take 1 l)) as (γl) "[L _]".
+    iMod (mono_nat_own_alloc 2) as (γtb) "[N _]".
     iExists (encode (γl, γtb)). iModIntro.
     iExists _,_. iSplit; iFrame; auto.
-    iPureIntro. by apply deque_bound_init.
+    iPureIntro. unfold CAP_CONST. split; auto. lia.
   Qed.
 
   Lemma mono_deque_get_lb γm l t b :
@@ -212,7 +212,7 @@ Section proof.
   Definition deque_inv (γq γpop γm : gname) (arr top bot : loc) : iProp :=
     ∃ (t b : nat) (l : list val) (Popping : bool),
       let bp := if Popping then b-1 else b in
-      ⌜t ≤ b ≤ CAP_CONST ∧ length l = CAP_CONST⌝ ∗
+      ⌜1 ≤ t ≤ b ≤ CAP_CONST ∧ length l = CAP_CONST⌝ ∗
       top ↦ #t ∗ bot ↦{#1/2} #bp ∗ arr ↦∗{#1/2} l ∗
       ghost_var γq (1/2) (slice l t b) ∗
       ghost_var γpop (1/2) Popping ∗
@@ -247,6 +247,7 @@ Section proof.
     unfold helpers.CAP_CONST in *;
     try by (
       repeat iNext; repeat iIntros; repeat intros;
+      try iPureIntro;
       lia
     ).
 
@@ -267,11 +268,11 @@ Section proof.
       with "[]") as (γm) "γm"...
     iMod (inv_alloc N _ (deque_inv γq γpop γm arr t b)
       with "[t↦ b↦1 arr↦1 γq1 γpop1 γm]") as "Inv".
-    { iNext. iExists 0, 0, _, false. iFrame "t↦ b↦1 arr↦1".
+    { iNext. iExists 1, 1, _, false. iFrame "t↦ b↦1 arr↦1".
       iFrame. iPureIntro... rewrite replicate_length... }
     wp_pures. iModIntro. iApply "HΦ". iSplit.
     - iExists _,_,_...
-    - iSplitR "b↦2 arr↦2 γpop2"... iExists _,_,_,0,_. iFrame...
+    - iSplitR "b↦2 arr↦2 γpop2"... iExists _,_,_,1,_. iFrame...
   Qed.
 
   Lemma push_spec γq γpop γm q (v : val) :
@@ -341,13 +342,11 @@ Section proof.
       with "γq Cont") as "[γq Cont]". 1: rewrite Qp.half_half...
     iMod (mono_deque_update_bot _ (S b) with "MD") as "MD"...
     iMod ("Commit" with "[Cont b👑 arr👑 γ👑]") as "Φ".
-    { iFrame. iExists _,_,_,(S b),_; iFrame. iSplit...
-      rewrite insert_length... }
+    { iFrame. iExists _,_,_,(S b),_; iFrame. iSplit... }
     iModIntro. iModIntro.
     
     iFrame. unfold deque_inv. iNext. iExists _,_,_,false.
     iFrame "t↦ b↦ arr↦ γq γpop". iSplit...
-    iPureIntro. apply deque_bound_extend_right...
   Qed.
 
   Lemma pop_spec γq γpop γm q :
@@ -387,8 +386,7 @@ Section proof.
         injection H as [=]. apply Nat2Z.inj in H.
       iDestruct (array_agree with "arr↦ arr👑") as "%"... subst.
     iCombine "b↦ b👑" as "b↦". wp_store.
-      Set Printing Coercions.
-      replace (Z.of_nat b-1)%Z with (Z.of_nat (b-1)). 2: admit.
+      replace (Z.of_nat b-1)%Z with (Z.of_nat (b-1))...
       iDestruct "b↦" as "[b↦ b👑]".
       iMod (ghost_var_update_2 true with "γ👑 γpop")
         as "[γ👑 γpop]". 1: rewrite Qp.half_half...
@@ -402,14 +400,52 @@ Section proof.
       ">(%BOUND3 & t↦ & b↦ & arr↦ & γq & γpop & MD)".
       iDestruct (ghost_var_agree with "γ👑 γpop") as "%". subst.
       iDestruct (mapsto_agree with "b↦ b👑") as "%".
-        injection H as [=]. 
-        apply Nat2Z.inj in H. assert (b = b3) by lia. (* bruh *)
+        injection H as [=]. assert (b = b3) by lia. subst. clear H.
       iDestruct (array_agree with "arr↦ arr👑") as "%"... subst.
+    (*iDestruct (mono_deque_get_lb with "MD") as "#MDlb".*)
     wp_load. iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD".
-      { iExists _,b3,_,false. iFrame "t↦ b↦" arr↦". γq γpop"... }
+      { iExists _,b3,_,true. iFrame "t↦ b↦ arr↦ γq γpop"... }
     wp_pures.
+
+    (* empty *)
+    case_bool_decide as Hbt3; wp_pures.
+    { wp_bind (_ <- _)%E.
+      iInv "Inv" as (t4 b4 l4 Pop4)
+        ">(%BOUND4 & t↦ & b↦ & arr↦ & γq & γpop & MD)".
+      iDestruct (ghost_var_agree with "γ👑 γpop") as "%". subst.
+      iDestruct (mapsto_agree with "b↦ b👑") as "%".
+        injection H as [=]. assert (b3 = b4); subst... clear H.
+      iDestruct (array_agree with "arr↦ arr👑") as "%"; subst...
+      admit. }
+    
+    (* normal pop *)
+    case_bool_decide as Hnormal; wp_pures.
+    { iInv "Inv" as (t4 b4 l4 Pop4)
+        ">(%BOUND4 & t↦ & b↦ & arr↦ & γq & γpop & MD)".
+      iDestruct (ghost_var_agree with "γ👑 γpop") as "%". subst.
+      iDestruct (mapsto_agree with "b↦ b👑") as "%".
+        injection H as [=]. assert (b3 = b4); subst... clear H.
+      iDestruct (array_agree with "arr↦ arr👑") as "%"; subst...
+      admit. }
+    
+    (* cas top *)
+    wp_bind (CmpXchg _ _ _)%E.
+    iInv "Inv" as (t4 b4 l4 Pop4)
+      ">(%BOUND4 & t↦ & b↦ & arr↦ & γq & γpop & MD)".
+      (*iDestruct (mono_deque_auth_lb with "MD MDlb") as "[%Ht34 %HL34]".*)
+    destruct (decide (t3 = t4)).
+    - (* success *)
+      subst. wp_cmpxchg_suc.
+      admit.
+    - (* fail *)
+      wp_cmpxchg_fail. { intro. injection H... }
+      iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD".
+      { iExists _,_,_,_. iFrame "t↦ b↦ arr↦ γq γpop MD"... }
+      wp_pures.
+      admit.
   Admitted.
 
+  (*
   Lemma steal_spec γq γm q :
     is_deque γq γm q -∗
     <<< ∀∀ l : list val, deque_content γq l >>>
@@ -493,4 +529,5 @@ Section proof.
       { iExists _,_,_. iFrame "t↦ b↦ arr↦ γ MD"... }
       by wp_pures.
   Qed.
+  *)
 End proof.
