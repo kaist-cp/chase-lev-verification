@@ -129,10 +129,40 @@ Section list.
       apply take_prefix.
   Qed.
 
+  Lemma reverse_equal l1 l2 :
+    reverse l1 = reverse l2 → l1 = l2.
+  Proof.
+    intros.
+    rewrite <- (reverse_involutive l1).
+    rewrite <- (reverse_involutive l2). by rewrite H.
+  Qed.
+
+  Lemma snoc_equal l1 l2 x y :
+    l1 ++ [x] = l2 ++ [y] → l1 = l2.
+  Proof.
+    intros.
+    rewrite <- (reverse_involutive (l1 ++ [x])) in H.
+    rewrite <- (reverse_involutive (l2 ++ [y])) in H.
+    do 2 rewrite reverse_snoc in H.
+    apply reverse_equal in H.
+    injection H; intros. by apply reverse_equal.
+  Qed.
+
   Lemma prefix_app_same_prefix l1 l2 l3 :
     l1 `prefix_of` l2 ++ l3 → length l1 = length l2 →
     l1 = l2.
   Proof.
-    induction l3 using rev_ind; intros.
-  Admitted.
+    unfold prefix.
+    induction l3 using rev_ind; intros [k H] Hl.
+    - rewrite app_nil_r in H. subst. rewrite app_length in Hl.
+      destruct k.
+      + by rewrite app_nil_r.
+      + simpl in Hl. lia.
+    - apply IHl3; auto.
+      destruct k using rev_ind.
+      + rewrite app_nil_r in H. subst.
+        do 2 rewrite app_length in Hl. simpl in Hl. lia.
+      + exists k. do 2 rewrite app_assoc in H.
+        by apply snoc_equal in H.
+  Qed.
 End list.
