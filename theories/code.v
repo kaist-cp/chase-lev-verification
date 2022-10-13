@@ -189,7 +189,7 @@ Section RA.
   Qed.
 
   Lemma mono_deque_update_bot γm b2 l t b1 :
-    b1 ≤ b2 ≤ CAP_CONST →
+    b1 ≤ b2 ≤ CAP_CONST ∨ t < b2 ≤ CAP_CONST →
     mono_deque_auth_own γm l t b1 ==∗ mono_deque_auth_own γm l t b2.
   Proof.
     iIntros (H) "(%γl & %γtb & %ENC & %BOUND & L & N)".
@@ -355,6 +355,7 @@ Section proof.
     <<< ∀∀ l : list val, deque_content γq l >>>
       pop q @ ↑N
     <<< ∃∃ (l' : list val) (b : bool) (v : val),
+        own_deque γq γpop q ∗
         deque_content γq l' ∗
         ⌜l = if b then l'++[v] else l'⌝ ,
       RET (#b, v) >>>.
@@ -403,6 +404,34 @@ Section proof.
         injection H as [=]. assert (b = b3) by lia. subst. clear H.
       iDestruct (array_agree with "arr↦ arr👑") as "%"... subst.
     (*iDestruct (mono_deque_get_lb with "MD") as "#MDlb".*)
+    (* if t3 < b3-1, this load is the commit point *)
+    destruct (decide (t3 < b3-1)).
+    { iMod "AU" as (l') "[Cont [_ Commit]]".
+        unfold deque_content.
+        iDestruct (ghost_var_agree with "Cont γq") as "%". subst.
+      assert (is_Some (l !! (b3-1))) as [v Hv].
+        1: rewrite lookup_lt_is_Some...
+        erewrite slice_shrink_right...
+      wp_load.
+      iMod (ghost_var_update_2 (slice l t3 (b3-1)) with "Cont γq")
+        as "[Cont γq]". 1: rewrite Qp.half_half...
+        iMod (ghost_var_update_2 false with "γ👑 γpop")
+          as "[γ👑 γpop]". 1: rewrite Qp.half_half...
+        iMod (mono_deque_update_bot _ (b3-1) with "MD") as "MD"...
+      iMod ("Commit" $! (slice l t3 (b3-1)) true v
+        with "[Cont arr👑 b👑 γ👑]") as "Φ".
+        { iFrame. iSplit... iExists _,_,_,_,_. iFrame... }
+      iModIntro. iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD".
+        { iExists _,_,_,false. iFrame "t↦ b↦ arr↦ γq γpop MD"... }
+      wp_pures. case_bool_decide...
+      wp_pures. case_bool_decide... wp_pures.
+      (* read value *)
+      iInv "Inv" as (t4 b4 l4 Pop4)
+        ">(%BOUND4 & t↦ & b↦ & arr↦ & γq & γpop & MD)".
+      (* we don't have owner anymore!! *)
+      admit.
+    }
+
     wp_load. iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD".
       { iExists _,b3,_,true. iFrame "t↦ b↦ arr↦ γq γpop"... }
     wp_pures.
@@ -416,19 +445,21 @@ Section proof.
       iDestruct (mapsto_agree with "b↦ b👑") as "%".
         injection H as [=]. assert (b3 = b4); subst... clear H.
       iDestruct (array_agree with "arr↦ arr👑") as "%"; subst...
-      admit. }
+      (* roll back bot *)
+      iCombine "b👑 b↦" as "b↦". wp_store.
+        iDestruct "b↦" as "[b👑 b↦]".
+        iMod (ghost_var_update_2 false with "γ👑 γpop")
+          as "[γ👑 γpop]". 1: rewrite Qp.half_half...
+      (* AU *)
+      iMod "AU" as (l') "[Cont [_ Commit]]".
+      iMod ("Commit" $! l' false #() with "[Cont arr👑 b👑 γ👑]") as "Φ".
+      { iFrame. iSplit... iExists _,_,_,_,_. iFrame... }
+      iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD".
+        { iExists _,b4,_,false. iFrame "t↦ b↦ arr↦ γq γpop"... }
+      by wp_pures. }
     
-    (* normal pop *)
-    case_bool_decide as Hnormal; wp_pures.
-    { iInv "Inv" as (t4 b4 l4 Pop4)
-        ">(%BOUND4 & t↦ & b↦ & arr↦ & γq & γpop & MD)".
-      iDestruct (ghost_var_agree with "γ👑 γpop") as "%". subst.
-      iDestruct (mapsto_agree with "b↦ b👑") as "%".
-        injection H as [=]. assert (b3 = b4); subst... clear H.
-      iDestruct (array_agree with "arr↦ arr👑") as "%"; subst...
-      admit. }
-    
-    (* cas top *)
+    (* cas top, we already handled normal pop *)
+    case_bool_decide... clear H. wp_pures.
     wp_bind (CmpXchg _ _ _)%E.
     iInv "Inv" as (t4 b4 l4 Pop4)
       ">(%BOUND4 & t↦ & b↦ & arr↦ & γq & γpop & MD)".

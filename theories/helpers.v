@@ -29,30 +29,6 @@ Section heap.
   Qed.
 End heap.
 
-Section Inbound.
-  Definition deque_bound (t b : nat) (l : list val) :=
-    t ≤ b ≤ CAP_CONST ∧ length l = CAP_CONST.
-
-  Lemma deque_bound_init l :
-    length l = CAP_CONST → deque_bound 0 0 l.
-  Proof.
-    intros H. unfold deque_bound. repeat split; auto.
-    unfold CAP_CONST. lia.
-  Qed.
-
-  Lemma deque_bound_insert t b l i v :
-    deque_bound t b l → deque_bound t b (<[i:=v]> l).
-  Proof. unfold deque_bound. by rewrite insert_length. Qed.
-
-  Lemma deque_bound_extend_right t b l :
-    deque_bound t b l → b < length l → deque_bound t (S b) l.
-  Proof. unfold deque_bound. lia. Qed.
-
-  Lemma deque_bound_shrink_left t b l : 
-    deque_bound t b l → t < b → deque_bound (S t) b l.
-  Proof. unfold deque_bound. lia. Qed.
-End Inbound.
-
 Section list.
   Context {A : Type}.
   Implicit Types l : list A.
@@ -91,13 +67,22 @@ Section list.
   Qed.
 
   Lemma slice_extend_right l i j v :
-    i <= j → l !! j = Some v →
+    i ≤ j → l !! j = Some v →
     slice l i (S j) = slice l i j ++ [v].
   Proof.
     unfold slice. intros Hij Hj.
     replace (S j - i) with (S (j - i)) by lia.
     rewrite (take_S_r _ _ v); auto. rewrite lookup_drop.
     replace (i + (j - i)) with j by lia. auto.
+  Qed.
+
+  Lemma slice_shrink_right l i j v :
+    i < j → l !! (j - 1) = Some v →
+    slice l i j = slice l i (j - 1) ++ [v].
+  Proof.
+    intros. replace j with (S (j - 1)) by lia.
+    erewrite slice_extend_right; eauto; try lia.
+    by replace (S (j - 1)) with j by lia.
   Qed.
 
   Lemma slice_shrink_left l i j v :
