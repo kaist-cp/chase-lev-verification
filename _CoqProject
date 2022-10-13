@@ -5,6 +5,7 @@
 # (https://github.com/coq/coq/issues/6294).
 -arg -w -arg -redundant-canonical-projection
 
+theories/atomic.v
 theories/mono_list.v
 theories/helpers.v	
 theories/code.v

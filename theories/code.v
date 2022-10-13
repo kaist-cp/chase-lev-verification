@@ -1,7 +1,7 @@
 From iris.algebra Require Import excl auth list.
 From iris.bi.lib Require Import fractional.
 From iris.base_logic.lib Require Import invariants ghost_var mono_nat.
-From iris.program_logic Require Import atomic.
+From chase_lev Require Import atomic.
 From iris.proofmode Require Import proofmode.
 From iris.heap_lang Require Import proofmode notation.
 From iris.prelude Require Import options.
@@ -49,7 +49,7 @@ Section code.
       if: "b" ≤ "t" then (* empty pop *)
         bot "deque" <- "b" ;; (#false, #())
       else if: "t" < "b" - #1 then (* normal case *)
-        !("array" +ₗ ("b" - #1))
+        (#true, !("array" +ₗ ("b" - #1)))
       else (* might conflict with steal *)
       let: "ok" := CAS (top "deque") "t" ("t" + #1) in
       bot "deque" <- "b" ;;
@@ -280,7 +280,8 @@ Section proof.
     own_deque γq γpop q -∗
     <<< ∀∀ l : list val, deque_content γq l >>>
       push q v @ ↑N
-    <<< deque_content γq (l ++ [v]) ∗ own_deque γq γpop q, RET #() >>>.
+    <<< deque_content γq (l ++ [v]),
+      RET #(), own_deque γq γpop q >>>.
   Proof with autoall.
     iIntros "#Is Own" (Φ) "AU".
       iDestruct "Own" as (arr top bot b l) "(-> & %HL & γ👑 & b👑 & arr👑)".
@@ -341,12 +342,12 @@ Section proof.
     iMod (ghost_var_update_2 (slice (<[b:=v]> l) t3 (S b))
       with "γq Cont") as "[γq Cont]". 1: rewrite Qp.half_half...
     iMod (mono_deque_update_bot _ (S b) with "MD") as "MD"...
-    iMod ("Commit" with "[Cont b👑 arr👑 γ👑]") as "Φ".
-    { iFrame. iExists _,_,_,(S b),_; iFrame. iSplit... }
+    iMod ("Commit" with "Cont") as "Φ".
     iModIntro. iModIntro.
-    
-    iFrame. unfold deque_inv. iNext. iExists _,_,_,false.
-    iFrame "t↦ b↦ arr↦ γq γpop". iSplit...
+
+    iSplitL "t↦ b↦ arr↦ γq γpop MD".
+      { iExists _,_,_,false. iFrame "t↦ b↦ arr↦ γq γpop MD"... }
+    iApply "Φ". iExists _,top,_,_,_. iFrame. iSplit...
   Qed.
 
   Lemma pop_spec γq γpop γm q :
@@ -355,10 +356,9 @@ Section proof.
     <<< ∀∀ l : list val, deque_content γq l >>>
       pop q @ ↑N
     <<< ∃∃ (l' : list val) (b : bool) (v : val),
-        own_deque γq γpop q ∗
         deque_content γq l' ∗
         ⌜l = if b then l'++[v] else l'⌝ ,
-      RET (#b, v) >>>.
+      RET (#b, v), own_deque γq γpop q >>>.
   Proof with autoall.
     iIntros "#Is Own" (Φ) "AU".
       iDestruct "Own" as (arr top bot b l) "(-> & %HL & γ👑 & b👑 & arr👑)".
@@ -419,18 +419,22 @@ Section proof.
           as "[γ👑 γpop]". 1: rewrite Qp.half_half...
         iMod (mono_deque_update_bot _ (b3-1) with "MD") as "MD"...
       iMod ("Commit" $! (slice l t3 (b3-1)) true v
-        with "[Cont arr👑 b👑 γ👑]") as "Φ".
-        { iFrame. iSplit... iExists _,_,_,_,_. iFrame... }
+        with "[Cont]") as "Φ"...
       iModIntro. iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD".
         { iExists _,_,_,false. iFrame "t↦ b↦ arr↦ γq γpop MD"... }
       wp_pures. case_bool_decide...
       wp_pures. case_bool_decide... wp_pures.
       (* read value *)
+      wp_bind (! _)%E.
+      replace (Z.of_nat b3 - 1)%Z with (Z.of_nat (b3 - 1))...
       iInv "Inv" as (t4 b4 l4 Pop4)
         ">(%BOUND4 & t↦ & b↦ & arr↦ & γq & γpop & MD)".
-      (* we don't have owner anymore!! *)
-      admit.
-    }
+      iApply (wp_load_offset with "arr👑")...
+        iNext. iIntros "arr👑".
+      iSplitR "arr👑 b👑 γ👑 Φ"; last first.
+      { iModIntro. wp_pures. iApply "Φ".
+        iExists _,_,_,_,_. iFrame "γ👑 b👑 arr👑"... }
+      iExists _,_,_,_. iFrame "t↦ b↦ arr↦ γq γpop MD"... }
 
     wp_load. iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD".
       { iExists _,b3,_,true. iFrame "t↦ b↦ arr↦ γq γpop"... }
@@ -452,11 +456,11 @@ Section proof.
           as "[γ👑 γpop]". 1: rewrite Qp.half_half...
       (* AU *)
       iMod "AU" as (l') "[Cont [_ Commit]]".
-      iMod ("Commit" $! l' false #() with "[Cont arr👑 b👑 γ👑]") as "Φ".
-      { iFrame. iSplit... iExists _,_,_,_,_. iFrame... }
-      iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD".
-        { iExists _,b4,_,false. iFrame "t↦ b↦ arr↦ γq γpop"... }
-      by wp_pures. }
+      iMod ("Commit" $! l' false #() with "[Cont]") as "Φ"...
+      iSplitL "t↦ b↦ arr↦ γpop γq MD".
+        { iExists _,_,_,false. iFrame "t↦ b↦ arr↦ γq γpop"... }
+      iModIntro. wp_pures. iApply "Φ".
+      iExists _,_,_,_,_. iFrame "γ👑 b👑 arr👑"... }
     
     (* cas top, we already handled normal pop *)
     case_bool_decide... clear H. wp_pures.
