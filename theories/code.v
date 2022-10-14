@@ -97,21 +97,21 @@ Section RA.
     ⌜γm = encode (γl, γtb)⌝ ∗
     ⌜1 ≤ t ≤ b ≤ CAP_CONST ∧ length l = CAP_CONST⌝ ∗
     mono_list_auth_own γl 1 (take (definite t b) l) ∗
-    mono_nat_auth_own γtb 1 (t + definite t b).
+    mono_nat_auth_own γtb 1 t.
 
   Definition mono_deque_lb_own (γm : gname) (l : list val) (t b : nat) : iProp :=
     ∃ (γl γtb : gname),
     ⌜γm = encode (γl, γtb)⌝ ∗
     ⌜1 ≤ t ≤ b ≤ CAP_CONST ∧ length l = CAP_CONST⌝ ∗
     mono_list_lb_own γl (take (definite t b) l) ∗
-    mono_nat_lb_own γtb (t + definite t b).
+    mono_nat_lb_own γtb t.
 
   Lemma mono_deque_own_alloc l :
     ⌜length l = CAP_CONST⌝ ==∗ ∃ γ, mono_deque_auth_own γ l 1 1.
   Proof.
     iIntros (H).
     iMod (mono_list_own_alloc (take 1 l)) as (γl) "[L _]".
-    iMod (mono_nat_own_alloc 2) as (γtb) "[N _]".
+    iMod (mono_nat_own_alloc 1) as (γtb) "[N _]".
     iExists (encode (γl, γtb)). iModIntro.
     iExists _,_. iSplit; iFrame; auto.
     iPureIntro. unfold CAP_CONST. split; auto. lia.
@@ -203,9 +203,7 @@ Section RA.
     iIntros (H) "(%γl & %γtb & %ENC & %BOUND & L & N)".
     iMod (mono_list_auth_own_update (take (definite t2 b) l) with "L") as "[L _]".
       { apply prefix_take. unfold definite. do 2 case_decide; lia. }
-    iMod (mono_nat_own_update (t2 + definite t2 b) with "N") as "[N _]".
-      { destruct (decide (t1 = t2)); subst; try lia.
-        unfold definite. do 2 case_decide; lia. }
+    iMod (mono_nat_own_update t2 with "N") as "[N _]". 1: lia.
     iModIntro.
     iExists _,_. repeat iSplit; auto; iFrame.
     all: iPureIntro; try lia.
@@ -218,8 +216,6 @@ Section RA.
     iIntros (H) "(%γl & %γtb & %ENC & %BOUND & L & N)".
     iMod (mono_list_auth_own_update (take (definite t b2) l) with "L") as "[L _]".
       { apply prefix_take. unfold definite. do 2 case_decide; lia. }
-    iMod (mono_nat_own_update (t + definite t b2) with "N") as "[N _]".
-      { unfold definite. do 2 case_decide; lia. }
     iModIntro.
     iExists _,_. repeat iSplit; auto; iFrame.
     all: iPureIntro; try lia.
@@ -265,18 +261,17 @@ Section proof.
     by iApply "IH".
   Qed.
 
-  Ltac frameall :=
+  Ltac fr :=
     repeat iExists _;
     try iFrame "arr↦"; try iFrame "arr↦1"; try iFrame "arr↦2"; 
     iFrame; eauto.
   Ltac autoall :=
-    try frameall; eauto;
+    eauto;
     unfold CAP_CONST in *; unfold helpers.CAP_CONST in *;
     unfold definite;
     try by (
       repeat iNext; repeat iIntros; repeat intros;
-      try case_decide;
-      try iPureIntro;
+      try case_decide; try iPureIntro;
       try rewrite lookup_lt_is_Some;
       try rewrite Qp.half_half;
       try lia; done
@@ -299,9 +294,9 @@ Section proof.
       with "[]") as (γm) "γm"...
     iMod (inv_alloc N _ (deque_inv γq γpop γm arr t b)
       with "[t↦ b↦1 arr↦1 γq1 γpop1 γm]") as "Inv".
-    { iNext... rewrite replicate_length... }
-    wp_pures. iModIntro. iApply "HΦ". iSplit...
-    iExists _,_,_,1,_...
+    { fr. rewrite replicate_length... }
+    wp_pures. iModIntro. iApply "HΦ". iSplit; fr.
+    iExists _,_,_,1,_. fr.
   Qed.
 
   Lemma push_spec γq γpop γm q (v : val) :
@@ -335,8 +330,8 @@ Section proof.
     iCombine "arr↦ arr👑" as "arr↦".
       iApply (wp_store_offset with "arr↦")...
       iNext. iIntros "[arr↦ arr👑]". iModIntro.
-    iSplitL "t↦ b↦ arr↦ γq γpop MD"...
-    { rewrite slice_insert_right... rewrite insert_length... }
+    iSplitL "t↦ b↦ arr↦ γq γpop MD".
+    { fr. rewrite slice_insert_right... rewrite insert_length... }
     wp_pures.
     replace (Z.of_nat b + 1)%Z with (Z.of_nat (S b))...
 
@@ -350,7 +345,7 @@ Section proof.
         1: rewrite insert_length...
     iMod "AU" as (l') "[Cont [_ Commit]]".
       unfold deque_content.
-      iDestruct (ghost_var_agree with "γq Cont") as "%"; subst.
+      iDestruct (ghost_var_agree with "γq Cont") as "%". subst.
       rewrite <- slice_extend_right... 2: rewrite list_lookup_insert...
     iCombine "b↦ b👑" as "b↦". wp_store.
       iDestruct "b↦" as "[b↦ b👑]".
@@ -360,8 +355,8 @@ Section proof.
     iMod ("Commit" with "Cont") as "Φ".
     iModIntro. iModIntro.
 
-    iSplitL "t↦ b↦ arr↦ γq γpop MD"...
-    iApply "Φ"... iSplit...
+    iSplitL "t↦ b↦ arr↦ γq γpop MD". 1: fr...
+    iApply "Φ". fr. fr... iSplit...
   Qed.
 
   Lemma pop_spec γq γpop γm q :
@@ -395,7 +390,7 @@ Section proof.
       replace (Z.of_nat b-1)%Z with (Z.of_nat (b-1))...
       iDestruct "b↦" as "[b↦ b👑]".
       iMod (ghost_var_update_2 true with "γ👑 γpop") as "[γ👑 γpop]"...
-    iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD"...
+    iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD". 1: fr.
     wp_pures.
 
     (* load top *)
@@ -418,15 +413,15 @@ Section proof.
         iMod (ghost_var_update_2 false with "γ👑 γpop") as "[γ👑 γpop]"...
         iMod (mono_deque_update_bot _ (b2-1) with "MD") as "MD"...
       iMod ("Commit" $! (slice l t2 (b2-1)) true v with "[Cont]") as "Φ"...
-      iModIntro. iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD"...
+      iModIntro. iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD". 1: fr...
       wp_pures. case_bool_decide... wp_pures.
       (* read [b2-1] *)
       wp_bind (! _)%E.
-      iApply (wp_load_offset with "arr👑")... iNext. iIntros "arr👑". wp_pures.
-      case_bool_decide... wp_pures. iApply "Φ"... }
+      iApply (wp_load_offset with "arr👑")... iNext. iIntros "arr👑".
+      wp_pures. case_bool_decide... wp_pures. iApply "Φ". fr. }
 
     (* otherwise... *)
-    wp_load. iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD"...
+    wp_load. iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD". 1: fr.
     wp_pures.
 
     (* empty *)
@@ -446,13 +441,14 @@ Section proof.
       (* AU *)
       iMod "AU" as (l') "[Cont [_ Commit]]".
       iMod ("Commit" $! l' false #() with "[Cont]") as "Φ"...
-      iSplitL "t↦ b↦ arr↦ γpop γq MD"...
-      iModIntro. wp_pures. iApply "Φ"... }
+      iSplitL "t↦ b↦ arr↦ γpop γq MD". 1: fr.
+      iModIntro. wp_pures. iApply "Φ". fr. }
     
     (* read [b2-1] *)
     wp_bind (! _)%E.
     assert (is_Some (l !! (b2-1))) as [v Hv]...
-    iApply (wp_load_offset with "arr👑")... iNext. iIntros "arr👑". wp_pures.
+    iApply (wp_load_offset with "arr👑")... iNext. iIntros "arr👑".
+    wp_pures.
 
     (* cas top, we already handled normal pop *)
     case_bool_decide... clear H. wp_pures.
@@ -477,7 +473,8 @@ Section proof.
       iMod (ghost_var_update_2 [] with "Cont γq") as "[Cont γq]"...
       iMod (mono_deque_update_top _ b3 with "MD") as "MD"...
       iMod ("Commit" $! [] true v with "[Cont]") as "Φ"...
-      iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD"... 1: rewrite slice_to_nil...
+      iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD".
+        { fr. rewrite slice_to_nil... fr... }
       wp_pures.
 
       (* store bot *)
@@ -492,13 +489,13 @@ Section proof.
       iCombine "b👑 b↦" as "b↦". wp_store.
         iDestruct "b↦" as "[b👑 b↦]".
       iMod (ghost_var_update_2 false with "γ👑 γpop") as "[γ👑 γpop]"...
-      iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD"...
-      wp_pures. iApply "Φ"...
+      iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD". 1: fr.
+      wp_pures. iApply "Φ". fr.
     - (* fail *)
       wp_cmpxchg_fail. { intro. injection H... }
       iMod "AU" as (l') "[Cont [_ Commit]]".
       iMod ("Commit" $! l' false #() with "[Cont]") as "Φ"...
-      iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD"...
+      iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD". 1: fr.
       wp_pures.
 
       (* store bot *)
@@ -513,8 +510,8 @@ Section proof.
       iCombine "b👑 b↦" as "b↦". wp_store.
         iDestruct "b↦" as "[b👑 b↦]".
       iMod (ghost_var_update_2 false with "γ👑 γpop") as "[γ👑 γpop]"...
-      iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD"...
-      wp_pures. iApply "Φ"...
+      iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD". 1: fr.
+      wp_pures. iApply "Φ". fr.
   Qed.
 
   Lemma steal_spec γq γpop γm q :
@@ -536,7 +533,7 @@ Section proof.
       ">(%BOUND1 & t↦ & b↦ & arr↦ & γq & γpop & MD)".
       iDestruct (mono_deque_get_lb with "MD") as "#MDlb1".
     wp_load.
-    iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD"...
+    iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD". 1: fr.
     wp_pures.
 
     (* load bot *)
@@ -546,7 +543,7 @@ Section proof.
       iDestruct (mono_deque_get_lb with "MD") as "#MDlb2".
       iDestruct (mono_deque_auth_lb_top with "MD MDlb1") as "%Ht12".
     wp_load.
-    iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD"...
+    iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD". 1: fr.
     wp_pures.
 
     (* no chance to steal *)
@@ -564,7 +561,7 @@ Section proof.
       iDestruct (mono_deque_auth_lb_top with "MD MDlb2") as "%Ht23".
     assert (is_Some (l3 !! t1)) as [v Hv]...
     iApply (wp_load_offset with "arr↦")... iNext. iIntros "arr↦".
-    iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD"...
+    iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD". 1: fr.
     wp_pures.
 
     (* cas top *)
@@ -588,15 +585,15 @@ Section proof.
         unfold deque_content.
         iDestruct (ghost_var_agree with "γq Cont") as "%". subst.
       iMod (ghost_var_update_2 (slice l4 (S t3) b4) with "γq Cont") as "[γq Cont]"...
-      iMod ("Commit" $! (slice l4 (S t3) b4) true v with "[Cont]") as "Φ"...
-        1: erewrite slice_shrink_left...
-      iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD"...
+      iMod ("Commit" $! (slice l4 (S t3) b4) true v with "[Cont]") as "Φ".
+        { fr. erewrite slice_shrink_left... }
+      iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD". 1: fr...
       wp_pures. iApply "Φ"...
     - (* fail *)
       wp_cmpxchg_fail. { intro. injection H... }
       iMod "AU" as (l) "[Cont [_ Commit]]".
       iMod ("Commit" $! l false #() with "[Cont]") as "Φ"...
-      iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD"...
+      iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD". 1: fr.
       wp_pures. iApply "Φ"...
   Qed.
 End proof.
