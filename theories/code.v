@@ -140,9 +140,16 @@ Section RA.
     unfold definite in *. do 2 case_decide; iPureIntro; lia.
   Qed.
 
+  Lemma mono_deque_definite_length γm l t b :
+    mono_deque_lb_own γm l t b -∗ ⌜definite t b ≤ b ≤ length l⌝.
+  Proof.
+    iIntros  "(%γl & %γtb & %ENC & [%BOUND1 %BOUND2] & L & N)".
+    unfold definite. case_decide; iPureIntro; try lia.
+  Qed.
+
   Lemma mono_deque_auth_lb_top γm l1 t1 b1 l2 t2 b2 :
     mono_deque_auth_own γm l1 t1 b1 -∗ mono_deque_lb_own γm l2 t2 b2 -∗
-    ⌜t2 ≤ t1⌝.
+    ⌜t2 ≤ t1 ∧ (t1 = t2 → t2 < b2 → t1 < b1)⌝.
   Proof.
     iIntros "D1 D2".
     iDestruct (mono_deque_auth_lb_length with "D1 D2") as "%D".
@@ -154,21 +161,28 @@ Section RA.
     unfold definite in *. do 2 case_decide; iPureIntro; lia.
   Qed.
 
-  Lemma mono_deque_auth_lb_lookup γm i v l1 t1 b1 l2 t2 b2 :
-    i < (definite t2 b2) → l2 !! i = Some v →
-    mono_deque_auth_own γm l1 t1 b1 -∗ mono_deque_lb_own γm l2 t2 b2 -∗
-    ⌜l1 !! i = Some v⌝.
+  Lemma mono_deque_lb_lookup γm i l1 t1 b1 l2 t2 b2 :
+    i < (definite t1 b1) → i < (definite t2 b2) →
+    mono_deque_lb_own γm l1 t1 b1 -∗ mono_deque_lb_own γm l2 t2 b2 -∗
+    ⌜l1 !! i = l2 !! i⌝.
   Proof.
     iIntros (Hi Hv) "D1 D2".
-    iDestruct (mono_deque_auth_lb_length with "D1 D2") as "%D".
+      iDestruct (mono_deque_definite_length with "D1") as "%L1".
+      iDestruct (mono_deque_definite_length with "D2") as "%L2".
     iDestruct "D1" as "(%γl & %γtb & %ENC & %BOUND & L & N)".
     iDestruct "D2" as "(%γl' & %γtb' & %ENC' & %BOUND' & L' & N')".
       rewrite ENC in ENC'. apply (inj encode) in ENC'.
       injection ENC' as [= <- <-].
-    iDestruct (mono_list_auth_lb_valid with "L L'") as "[_ %Pref]".
-    rewrite <- (lookup_take _ (definite t1 b1)) by lia.
-    rewrite <- (lookup_take _ (definite t2 b2)) in Hv; auto.
-    iPureIntro. by eapply prefix_lookup.
+    rewrite <- (lookup_take l1 (definite t1 b1)) by lia.
+      assert (is_Some (take (definite t1 b1) l1 !! i)) as [v1 Hv1].
+      { rewrite lookup_lt_is_Some take_length. lia. }
+    rewrite <- (lookup_take l2 (definite t2 b2)) by lia.
+      assert (is_Some (take (definite t2 b2) l2 !! i)) as [v2 Hv2].
+      { rewrite lookup_lt_is_Some take_length. lia. }
+    iDestruct (mono_list_lb_valid with "L L'") as "%Pref".
+    destruct Pref.
+    - rewrite Hv1. erewrite prefix_lookup; eauto.
+    - rewrite Hv2. erewrite prefix_lookup; eauto.
   Qed.
 
   Lemma mono_deque_auth_insert γm l t b i v :
@@ -180,19 +194,6 @@ Section RA.
     iExists _,_. repeat iSplit; auto. all: try iPureIntro; try lia.
     1: rewrite insert_length; lia.
     rewrite take_insert; auto. iFrame.
-  Qed.
-
-  Lemma mono_deque_top_nonempty γm t l1 b1 l2 b2 :
-    t < b2 →
-    mono_deque_auth_own γm l1 t b1 -∗ mono_deque_lb_own γm l2 t b2 -∗
-    ⌜t < b1⌝.
-  Proof.
-    iIntros (H) "(%γl & %γtb & %ENC & %BOUND & L & N)".
-    iIntros "(%γl' & %γtb' & %ENC' & %BOUND' & L' & N')".
-      rewrite ENC in ENC'. apply (inj encode) in ENC'.
-      injection ENC' as [= <- <-].
-    iDestruct (mono_nat_lb_own_valid with "N N'") as "[_ %Le]".
-    unfold definite in *. do 2 case_decide; try lia; auto.
   Qed.
 
   Lemma mono_deque_update_top γm t2 l t1 b :
@@ -271,9 +272,10 @@ Section proof.
   Ltac autoall :=
     try frameall; eauto;
     unfold CAP_CONST in *; unfold helpers.CAP_CONST in *;
-    unfold definite; try case_decide;
+    unfold definite;
     try by (
       repeat iNext; repeat iIntros; repeat intros;
+      try case_decide;
       try iPureIntro;
       try rewrite lookup_lt_is_Some;
       try rewrite Qp.half_half;
@@ -573,45 +575,28 @@ Section proof.
     destruct (decide (t1 = t4)).
     - (* success *)
       assert (t1 = t2)... assert (t2 = t3)... subst.
+      assert (t3 < b3) as Htb3... assert (t3 < b4) as Htb4...
       wp_cmpxchg_suc.
+      replace (Z.of_nat t3 + 1)%Z with (Z.of_nat (S t3))...
       (* update ghost *)
-      iDestruct (mono_deque_top_nonempty with "MD MDlb2") as "%Htb34"...
-(*
-      replace (Z.of_nat t2 + 1)%Z with (Z.of_nat (S t2))...
-      iMod (mono_deque_update_top _ (S t2) with "MD") as "MD"...
-        iDestruct (mono_deque_get_lb with "MD") as "#MDlb3".
-*)
+      iDestruct (mono_deque_get_lb with "MD") as "#MDlb4".
+      iDestruct (mono_deque_lb_lookup _ t3 with "MDlb3 MDlb4") as "%"...
+        rewrite Hv in H.
+      iMod (mono_deque_update_top _ (S t3) with "MD") as "MD"...
       (* AU *)
       iMod "AU" as (l') "[Cont [_ Commit]]".
         unfold deque_content.
         iDestruct (ghost_var_agree with "γq Cont") as "%". subst.
-      iMod (ghost_var_update_2 (slice l3 (S t3) b3) with "γq Cont") as "[γq Cont]"...
-      erewrite slice_shrink_left...
-      iMod ("Commit" $! (slice l3 (S t2) b3) true v with "[Cont]") as "Φ".
-        { iFrame. erewrite slice_shrink_left... }
-      iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD".
-      { iExists _,_,_,_. iFrame "t↦ b↦ arr↦ γq γpop MD"... }
-      wp_pures.
-      (* load arr[t2] *)
-      wp_bind (! _)%E.
-      iInv "Inv" as (t4 b4 l4 Pop4)
-        ">(%BOUND4 & t↦ & b↦ & arr↦ & γq & γpop & MD)".
-        iDestruct (mono_deque_auth_lb with "MD MDlb3") as "[%Ht34 %HL34]".
-      assert (l4 !! t2 = Some k).
-        { rewrite -(lookup_take _ (S t2))... rewrite -HL34 lookup_take... }
-      iApply (wp_load_offset with "arr↦")...
-      iNext. iIntros "arr↦".
-      iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD".
-      { iExists _,_,_,_. iFrame "t↦ b↦ arr↦ γq γpop MD"... }
+      iMod (ghost_var_update_2 (slice l4 (S t3) b4) with "γq Cont") as "[γq Cont]"...
+      iMod ("Commit" $! (slice l4 (S t3) b4) true v with "[Cont]") as "Φ"...
+        1: erewrite slice_shrink_left...
+      iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD"...
       wp_pures. iApply "Φ"...
     - (* fail *)
       wp_cmpxchg_fail. { intro. injection H... }
       iMod "AU" as (l) "[Cont [_ Commit]]".
       iMod ("Commit" $! l false #() with "[Cont]") as "Φ"...
-      iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD".
-      { iExists _,_,_,_. iFrame "t↦ b↦ arr↦ γq γpop MD"... }
+      iModIntro. iSplitL "t↦ b↦ arr↦ γq γpop MD"...
       wp_pures. iApply "Φ"...
   Qed.
-*)
-Admitted.
 End proof.
