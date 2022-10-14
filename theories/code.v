@@ -403,7 +403,6 @@ Section proof.
       iDestruct (mapsto_agree with "b↦ b👑") as "%".
         injection H as [=]. assert (b = b3) by lia. subst. clear H.
       iDestruct (array_agree with "arr↦ arr👑") as "%"... subst.
-    (*iDestruct (mono_deque_get_lb with "MD") as "#MDlb".*)
     (* if t3 < b3-1, this load is the commit point *)
     destruct (decide (t3 < b3-1)).
     { iMod "AU" as (l') "[Cont [_ Commit]]".
@@ -427,15 +426,12 @@ Section proof.
       (* read value *)
       wp_bind (! _)%E.
       replace (Z.of_nat b3 - 1)%Z with (Z.of_nat (b3 - 1))...
-      iInv "Inv" as (t4 b4 l4 Pop4)
-        ">(%BOUND4 & t↦ & b↦ & arr↦ & γq & γpop & MD)".
       iApply (wp_load_offset with "arr👑")...
         iNext. iIntros "arr👑".
-      iSplitR "arr👑 b👑 γ👑 Φ"; last first.
-      { iModIntro. wp_pures. iApply "Φ".
+      wp_pures. iApply "Φ".
         iExists _,_,_,_,_. iFrame "γ👑 b👑 arr👑"... }
-      iExists _,_,_,_. iFrame "t↦ b↦ arr↦ γq γpop MD"... }
 
+    (* otherwise... *)
     wp_load. iModIntro. iSplitL "t↦ b↦ arr↦ γpop γq MD".
       { iExists _,b3,_,true. iFrame "t↦ b↦ arr↦ γq γpop"... }
     wp_pures.
@@ -445,10 +441,10 @@ Section proof.
     { wp_bind (_ <- _)%E.
       iInv "Inv" as (t4 b4 l4 Pop4)
         ">(%BOUND4 & t↦ & b↦ & arr↦ & γq & γpop & MD)".
-      iDestruct (ghost_var_agree with "γ👑 γpop") as "%". subst.
-      iDestruct (mapsto_agree with "b↦ b👑") as "%".
-        injection H as [=]. assert (b3 = b4); subst... clear H.
-      iDestruct (array_agree with "arr↦ arr👑") as "%"; subst...
+        iDestruct (ghost_var_agree with "γ👑 γpop") as "%". subst.
+        iDestruct (mapsto_agree with "b↦ b👑") as "%".
+          injection H as [=]. assert (b3 = b4); subst... clear H.
+        iDestruct (array_agree with "arr↦ arr👑") as "%"; subst...
       (* roll back bot *)
       iCombine "b👑 b↦" as "b↦". wp_store.
         iDestruct "b↦" as "[b👑 b↦]".
@@ -471,7 +467,6 @@ Section proof.
       iDestruct (mapsto_agree with "b↦ b👑") as "%".
         injection H as [=]. assert (b3 = b4) by lia. subst. clear H.
       iDestruct (array_agree with "arr↦ arr👑") as "%"... subst.
-      (*iDestruct (mono_deque_auth_lb with "MD MDlb") as "[%Ht34 %HL34]".*)
     destruct (decide (t3 = t4)).
     - (* success *)
       subst. wp_cmpxchg_suc.
