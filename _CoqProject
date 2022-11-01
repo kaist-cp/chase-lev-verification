@@ -7,7 +7,7 @@
 
 theories/atomic.v
 theories/mono_list.v
-theories/helpers.v	
-theories/code.v
-# theories/spec.v
-# theories/proof.v
+theories/linear/helpers.v	
+theories/linear/code.v
+theories/circular/helpers.v
+theories/circular/code.v

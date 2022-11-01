@@ -5,21 +5,58 @@ From chase_lev Require Import atomic.
 From iris.proofmode Require Import proofmode.
 From iris.heap_lang Require Import proofmode notation.
 From iris.prelude Require Import options.
-From chase_lev Require Import helpers mono_list.
+From chase_lev Require Import mono_list.
+From chase_lev.circular Require Import helpers.
 
-Definition CAP_CONST : nat := 10.
+Definition CAP_CONST : nat := 20.
 
 (*
-  We use a finite length list without resizing;
-  The push function diverges if bot gets out of bound.
-  +--+--+--+--+--+--+--+--
-  |99|10|20|30|40|  |  |   ..
-  +--+--+--+--+--+--+--+--
-      ^           ^
-      |           |
-      top         bot
+We use a finite length circular list without resizing.
+The push function diverges on overflow.
+
+19    0  1  2  3  4  5     6
+  +--+--+--+--+--+--+--+--+
+  |99|10|20|30|40|04|05|06|
+  +--+--+--+--+--+--+--+--+
+18|88|   ^        ^    |07|7
+  +--+   top      bot  +--+
+17|77|                 |08|8
+  +--+--+--+--+--+--+--+--+
+  |66|55|44|33|22|11|10|09|
+  +--+--+--+--+--+--+--+--+
+16    15 14 13 12 11 10    9
+
+This deque has the following physical state:
+- t = 21, b = 24
+- l = [10, 20, ..., 99]
+
+and the following abstract state:
+- t = 21, b = 24, "not popping"
+- content = [20, 30, 40]
+- history = [#(), 1, 2, ..., 10, 11, ..., 99, 10, 20]
+    where 1 to 3 were erased from the array       ^
+                                                  t
+Note on history:
+- history is the list of "determined elements", i.e.
+  those that are definitely the last element pushed at
+  each index.
+- history includes indices from 0 to either t or t-1.
+- history[0] is #() because t starts from 1 (because we
+  need to reason about t-1). However, this fact is not
+  necessary for proof.
+- If t = b, the element at t may be overwritten by push,
+  so history goes up to t-1. Otherwise, it goes up to t.
+
+Invariants:
+- top |-> t
+- bot |-> b if "not popping", otherwise bot |-> b-1
+- arr |-> l
+- those in history are preserved (done by mono_list)
+- top always increases (done by mono_nat)
+- ???
 *)
 
+(*
 Section code.
   Definition new_deque : val :=
     λ: <>,
@@ -30,7 +67,7 @@ Section code.
   Definition top : val := λ: "deque", Snd (Fst "deque").
   Definition bot : val := λ: "deque", Snd "deque".
   Definition loop : val := (rec: "loop" "x" := "loop" "x").
-  
+
   Definition push : val :=
     λ: "deque" "v",
       let: "array" := arr "deque" in
@@ -597,3 +634,4 @@ Section proof.
       wp_pures. iApply "Φ"...
   Qed.
 End proof.
+*)
