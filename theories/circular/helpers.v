@@ -2,7 +2,26 @@ From stdpp Require Import list.
 From iris.proofmode Require Import proofmode.
 From iris.heap_lang Require Import proofmode notation.
 
-Definition CAP_CONST : nat := 10.
+Definition CAP_CONST : nat := 20.
+
+Ltac encode_agree Hγ :=
+  match type of Hγ with
+  | ?γ = ?e =>
+      match goal with
+      | H1 : ?γ = ?e, H2 : ?γ = _ |- _ =>
+          rewrite H1 in H2; apply (inj encode) in H2;
+          first [ injection H2 as [= <- <- <- <- <- <- <- <- <- <- <-]
+                | injection H2 as [= <- <- <- <- <- <- <- <- <- <-]
+                | injection H2 as [= <- <- <- <- <- <- <- <- <-]
+                | injection H2 as [= <- <- <- <- <- <- <- <-]
+                | injection H2 as [= <- <- <- <- <- <- <-]
+                | injection H2 as [= <- <- <- <- <- <-]
+                | injection H2 as [= <- <- <- <- <-]
+                | injection H2 as [= <- <- <- <-]
+                | injection H2 as [= <- <- <-]
+                | injection H2 as [= <- <-] ]
+      end
+  end.
 
 Section heap.
   Context `{!heapGS Σ} (N : namespace).
@@ -32,7 +51,7 @@ End heap.
 Section list.
   Context {A : Type}.
   Implicit Types l : list A.
-(*
+
   (* slice l i j = l[i..j-1] *)
   Definition slice l i j := take (j - i) (drop i l).
 
@@ -165,5 +184,4 @@ Section list.
       + exists k. do 2 rewrite app_assoc in H.
         by apply snoc_equal in H.
   Qed.
-*)
 End list.
