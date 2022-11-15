@@ -39,13 +39,13 @@ and the following abstract state:
 Note on history:
 - history is the list of "determined elements", i.e.
   those that are definitely the last element pushed at
-  each index.
+  each index and won't be overwritten.
 - history includes indices from 0 to either t or t-1.
+  If t = b, the element at t may be overwritten by push,
+  so history goes up to t-1. Otherwise, it goes up to t.
 - history[0] is #() because t starts from 1 (because we
   need to reason about t-1). However, this fact is not
   necessary for proof.
-- If t = b, the element at t may be overwritten by push,
-  so history goes up to t-1. Otherwise, it goes up to t.
 
 Invariants:
 - top |-> t
@@ -53,7 +53,7 @@ Invariants:
 - arr |-> l
 - those in history are preserved (done by mono_list)
 - top always increases (done by mono_nat)
-- ???
+- l and history matches "somehow (TODO)"
 *)
 
 Section code.
@@ -121,27 +121,25 @@ Definition dequeΣ : gFunctors :=
   ].
 Global Instance subG_dequeΣ {Σ} : subG dequeΣ Σ → dequeG Σ.
 Proof. solve_inG. Qed.
-(*
+
 Section RA.
   Context `{!heapGS Σ, !dequeG Σ} (N : namespace).
   Notation iProp := (iProp Σ).
 
-  Definition definite t b := t + (if decide (t < b) then 1 else 0).
+  Definition mono_deque_auth_own (γm : gname) (hl : list val) (t b : nat) : iProp :=
+    ∃ (γl γt : gname),
+    ⌜γm = encode (γl, γt)⌝ ∗
+    mono_list_auth_own γl 1 hl ∗
+    mono_nat_auth_own γt 1 t ∗
+    ⌜(length hl = t ∧ t = b) ∨ (length hl = S t ∧ t < b)⌝.
 
-  Definition mono_deque_auth_own (γm : gname) (l : list val) (t b : nat) : iProp :=
-    ∃ (γl γtb : gname),
-    ⌜γm = encode (γl, γtb)⌝ ∗
-    ⌜1 ≤ t ≤ b ≤ CAP_CONST ∧ length l = CAP_CONST⌝ ∗
-    mono_list_auth_own γl 1 (take (definite t b) l) ∗
-    mono_nat_auth_own γtb 1 t.
-
-  Definition mono_deque_lb_own (γm : gname) (l : list val) (t b : nat) : iProp :=
-    ∃ (γl γtb : gname),
-    ⌜γm = encode (γl, γtb)⌝ ∗
-    ⌜1 ≤ t ≤ b ≤ CAP_CONST ∧ length l = CAP_CONST⌝ ∗
-    mono_list_lb_own γl (take (definite t b) l) ∗
-    mono_nat_lb_own γtb t.
-
+  Definition mono_deque_lb_own (γm : gname) (hl : list val) (t b : nat) : iProp :=
+    ∃ (γl γt : gname),
+    ⌜γm = encode (γl, γt)⌝ ∗
+    mono_list_lb_own γl hl ∗
+    mono_nat_lb_own γt t ∗
+    ⌜(length hl = t ∧ t = b) ∨ (length hl = S t ∧ t < b)⌝.
+(*
   Lemma mono_deque_own_alloc l :
     ⌜length l = CAP_CONST⌝ ==∗ ∃ γ, mono_deque_auth_own γ l 1 1.
   Proof.
@@ -244,20 +242,27 @@ Section RA.
     iExists _,_. repeat iSplit; auto; iFrame.
     all: iPureIntro; try lia.
   Qed.
-
-  Lemma mono_deque_update_bot γm b2 l t b1 :
-    b1 ≤ b2 ≤ CAP_CONST ∨ t < b2 ≤ CAP_CONST →
-    mono_deque_auth_own γm l t b1 ==∗ mono_deque_auth_own γm l t b2.
+*)
+  Lemma mono_deque_push γm l2 b2 l1 t b1 :
+    (* b1 ≤ b2 ≤ CAP_CONST ∨ t < b2 ≤ CAP_CONST → *)
+    b1 < b2 →
+    ((t = b1 ∧ ∃ v, l2 = l1 ++ [v]) ∨
+      (t < b1 ∧ l1 = l2)
+    ) →
+    mono_deque_auth_own γm l1 t b1 ==∗ mono_deque_auth_own γm l2 t b2.
   Proof.
-    iIntros (H) "(%γl & %γtb & %ENC & %BOUND & L & N)".
-    iMod (mono_list_auth_own_update (take (definite t b2) l) with "L") as "[L _]".
-      { apply prefix_take. unfold definite. do 2 case_decide; lia. }
-    iModIntro.
-    iExists _,_. repeat iSplit; auto; iFrame.
-    all: iPureIntro; try lia.
+    iIntros (H HU) "(%γl & %γt & %ENC & L & N & %BOUND)".
+    destruct HU as [[Ht [v Hl]]|[Ht Hl]];
+    destruct BOUND as [[Hl1 Hb]|[Hl1 Hb]]; try lia; subst.
+    - iMod (mono_list_auth_own_update (l1 ++ [v]) with "L") as "[L _]".
+      { by apply prefix_app_r. }
+      iModIntro. iExists _,_. repeat iSplit; auto; iFrame.
+      iPureIntro. right; split; auto. rewrite app_length; simpl. lia.
+    - iModIntro. iExists _,_. repeat iSplit; auto; iFrame.
+      iPureIntro. right; split; auto. lia.
   Qed.
 End RA.
-*)
+
 Section proof.
   Context `{!heapGS Σ, !dequeG Σ} (N : namespace).
   Notation iProp := (iProp Σ).
@@ -265,8 +270,8 @@ Section proof.
   (* TODO: change l to ↦∗{#1} & make another ghost_var in deque_content?
      (see msqueue) *)
   Definition deque_inv (γ : gname) (arr top bot : loc) : iProp :=
-    ∃ (γq γpop γl γt : gname) (t b : nat) (l : list val) (Popping : bool),
-      ⌜γ = encode (γq, γpop, γl, γt)⌝ ∗
+    ∃ (γq γpop γm : gname) (t b : nat) (l : list val) (Popping : bool),
+      ⌜γ = encode (γq, γpop, γm)⌝ ∗
       ⌜1 ≤ t ≤ b ≤ CAP_CONST ∧ length l = CAP_CONST⌝ ∗
       (* physical state *)
       ( let bp := if Popping then b-1 else b in
@@ -277,12 +282,7 @@ Section proof.
         ghost_var γpop (1/2) Popping
       ) ∗
       (* monotonicity *)
-      ( ∃ (hl : list val),
-        mono_list_auth_own γl 1 hl ∗
-        mono_nat_auth_own γt 1 t ∗
-        ⌜(length hl = t ∧ t = b) ∨
-          (length hl = S t ∧ t < b)⌝
-      ).
+      ∃ (hl : list val), mono_deque_auth_own γm hl t b.
 
   Definition is_deque (γ : gname) (q : val) : iProp :=
     ∃ (arr top bot : loc),
@@ -292,13 +292,13 @@ Section proof.
     Persistent (is_deque γ q) := _.
 
   Definition deque_content (γ : gname) (frag : list val) : iProp :=
-    ∃ (γq γpop γl γt : gname),
-      ⌜γ = encode (γq, γpop, γl, γt)⌝ ∗
+    ∃ (γq γpop γm : gname),
+      ⌜γ = encode (γq, γpop, γm)⌝ ∗
       ghost_var γq (1/2) frag.
 
   Definition own_deque (γ : gname) (q : val) : iProp :=
-    ∃ (γq γpop γl γt : gname) (arr top bot : loc) (b : nat) (l : list val),
-      ⌜γ = encode (γq, γpop, γl, γt)⌝ ∗
+    ∃ (γq γpop γm : gname) (arr top bot : loc) (b : nat) (l : list val),
+      ⌜γ = encode (γq, γpop, γm)⌝ ∗
       ⌜q = (#arr, #top, #bot)%V⌝ ∗
       ⌜length l = CAP_CONST⌝ ∗
       ghost_var γpop (1/2) false ∗
@@ -359,7 +359,7 @@ Section proof.
       RET #(), own_deque γ q >>>.
   Proof with autoall.
     iIntros "#Is Own" (Φ) "AU".
-      iDestruct "Own" as (γq γpop γl γt arr top bot b l)
+      iDestruct "Own" as (γq γpop γm arr top bot b l)
         "(%Hγ & -> & %HL & γ👑 & b👑 & arr👑)".
       iDestruct "Is" as (arr' top' bot') "[%Is Inv]".
       injection Is as [= <- <- <-].
@@ -372,7 +372,7 @@ Section proof.
 
     (* store value *)
     wp_bind (_ <- _)%E.
-    iInv "Inv" as (γq' γpop' γl' γt' t1 b1 l1 Pop1)
+    iInv "Inv" as (γq' γpop' γm' t1 b1 l1 Pop1)
       ">(%Enc & %Bound1 & Phys & Abst & Mono)".
       encode_agree Enc.
     iDestruct "Abst" as "[Q P]".
@@ -387,18 +387,18 @@ Section proof.
       iNext. iIntros "[arr↦ arr👑]".
     iCombine "t↦ b↦ arr↦" as "Phys".
     iModIntro. iSplitL "Phys Abst Mono".
-    { iExists _,_,_,_, _,_,(<[b:=v]>l),_.
+    { iExists _,_,_, _,_,(<[b:=v]>l),_.
       rewrite insert_length. rewrite slice_insert_right...
       iSplit... iSplit... fr. }
     wp_pures.
     replace (Z.of_nat b + 1)%Z with (Z.of_nat (S b))...
 
     (* store bot *)
-    iInv "Inv" as (γq' γpop' γl' γt' t2 b2 l2 Pop2)
+    iInv "Inv" as (γq' γpop' γm' t2 b2 l2 Pop2)
       ">(%Enc & %Bound2 & Phys & Abst & Mono)".
       encode_agree Enc.
     iMod "AU" as (q) "[Cont [_ Commit]]".
-      iDestruct "Cont" as (γq' γpop' γl' γt') "[%Enc Cont]".
+      iDestruct "Cont" as (γq' γpop' γm') "[%Enc Cont]".
       encode_agree Enc.
     iDestruct "Abst" as "[Q P]".
       iDestruct (ghost_var_agree with "Q Cont") as "%". subst q.
@@ -413,26 +413,31 @@ Section proof.
         1: rewrite insert_length... subst l2.
       iCombine "b↦ b👑" as "b↦". wp_store.
         iDestruct "b↦" as "[b↦ b👑]".
+    iDestruct "Mono" as (hl) "Mono".
+      iMod (mono_deque_push _
+        (if decide (t2 = b) then hl ++ [v] else hl)
+        (S b) with "Mono") as "Mono"...
+      { destruct (decide (t2 = b))... right; split... }
     iCombine "t↦ b↦ arr↦" as "Phys".
     rewrite <- slice_extend_right... 2: rewrite list_lookup_insert...
     iMod ("Commit" with "[Cont]") as "Φ". 1: fr.
     iModIntro. iModIntro.
 
     iSplitL "Phys Abst Mono".
-    { iExists _,_,_,_, t2,(S b),(<[b:=v]> l),_.
+    { iExists _,_,_, t2,(S b),(<[b:=v]> l),_.
       iSplit... iSplit... fr. }
-    iApply "Φ". fr. fr... iSplit...
+    iApply "Φ". fr. fr... iSplit... iSplit...
   Qed.
 
-  Lemma pop_spec γq γpop γm q :
-    is_deque γq γpop γm q -∗
-    own_deque γq γpop q -∗
-    <<< ∀∀ l : list val, deque_content γq l >>>
+  Lemma pop_spec γ q :
+    is_deque γ q -∗
+    own_deque γ q -∗
+    <<< ∀∀ l : list val, deque_content γ l >>>
       pop q @ ↑N
     <<< ∃∃ (l' : list val) (b : bool) (v : val),
-        deque_content γq l' ∗
+        deque_content γ l' ∗
         ⌜l = if b then l'++[v] else l'⌝ ,
-      RET (#b, v), own_deque γq γpop q >>>.
+      RET (#b, v), own_deque γ q >>>.
   Proof with autoall.
     iIntros "#Is Own" (Φ) "AU".
       iDestruct "Own" as (arr top bot b l) "(-> & %HL & γ👑 & b👑 & arr👑)".
@@ -662,4 +667,3 @@ Section proof.
       wp_pures. iApply "Φ"...
   Qed.
 End proof.
-*)
