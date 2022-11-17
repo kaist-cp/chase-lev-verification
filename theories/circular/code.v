@@ -139,7 +139,7 @@ Section RA.
     mono_list_lb_own γl hl ∗
     mono_nat_lb_own γt t ∗
     ⌜(length hl = t ∧ t = b) ∨ (length hl = S t ∧ t < b)⌝.
-(*
+  (*
   Lemma mono_deque_own_alloc l :
     ⌜length l = CAP_CONST⌝ ==∗ ∃ γ, mono_deque_auth_own γ l 1 1.
   Proof.
@@ -168,7 +168,7 @@ Section RA.
     1: rewrite insert_length; lia.
     rewrite take_insert; auto. iFrame.
   Qed.
-*)
+  *)
   Lemma mono_deque_auth_history γm l t b :
     mono_deque_auth_own γm l t b -∗
     ⌜(length l = t ∧ t = b) ∨ (length l = S t ∧ t < b)⌝.
@@ -430,18 +430,18 @@ Section proof.
           injection H as [=]. apply Nat2Z.inj in H. subst b1.
         iDestruct (array_agree with "arr↦ arr👑") as "%"... subst l1.
         iCombine "arr↦ arr👑" as "arr↦".
-        iApply (wp_store_offset with "arr↦"). { rewrite <- HL. apply mod_lookup... }
+        iApply (wp_store_offset with "arr↦").
+        { rewrite <- HL. apply mod_get_is_Some... }
+        replace (<[b `mod` 20:=v]> l) with (mod_set l b v).
+          2: rewrite -HL...
         iNext. iIntros "[arr↦ arr👑]".
       iCombine "t↦ b↦ arr↦" as "Phys".
       iDestruct "Mono" as (hl1) "[Mono %HistPref1]".
         iDestruct (mono_deque_auth_history with "Mono") as "%Hist1".
       iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, t1,b,(<[(b `mod` CAP_CONST):=v]>l),false.
-(* TODO: this `mod` stuff is dirty! define circ_set l i v := <[i `mod` length l:=v]> l.
-do similarly for circ_get, but use fixpoint and prove l !! (i `mod` length l) = Some (circ_get l i) *)
-        rewrite insert_length.
-        repeat iSplit... fr.
-        rewrite <- HL. rewrite circ_slice_update_right... 1: fr.
+      { iExists _,_,_, t1,b,(mod_set l b v),false.
+        rewrite insert_length. repeat iSplit... fr.
+        rewrite circ_slice_update_right... 1: fr.
         rewrite HL.
         assert (t0 <= t1) by admit... (* use monodeque *)
       }
@@ -476,14 +476,13 @@ do similarly for circ_get, but use fixpoint and prove l !! (i `mod` length l) = 
           (S b) with "Mono") as "Mono"...
         { destruct (decide (t2 = b))... right; split... }
       rewrite <- circ_slice_extend_right...
-      2: { rewrite insert_length HL list_lookup_insert... rewrite HL.
-        apply Nat.mod_upper_bound... }
+        2: rewrite mod_set_get...
       iMod ("Commit" with "[Cont]") as "Φ". 1: fr.
     iModIntro. iModIntro.
 
     iSplitL "Phys Abst Mono".
-    { iExists _,_,_, t2,(S b),(<[(b `mod` CAP_CONST):=v]> l),_.
-      iSplit... iSplit... fr. }
+    { iExists _,_,_, t2,(S b),(mod_set l b v),false.
+      repeat iSplit... fr. }
     iApply "Φ". fr... repeat iSplit...
   Admitted.
 
@@ -548,19 +547,19 @@ do similarly for circ_get, but use fixpoint and prove l !! (i `mod` length l) = 
     { iMod "AU" as (l') "[Cont [_ Commit]]".
         iDestruct "Cont" as (γq' γpop' γm') "[%Enc Cont]".
         encode_agree Enc.
-      assert (is_Some (l !! (b-1))) as [v Hv]...
-        erewrite slice_shrink_right...
+      destruct (mod_get_is_Some l (b-1)) as [v Hv]...
+      erewrite circ_slice_shrink_right...
       iDestruct "Phys" as "(t↦ & b↦ & arr↦)". wp_load.
       iCombine "t↦ b↦ arr↦" as "Phys".
       iDestruct "Abst" as "[Q P]".
         iDestruct (ghost_var_agree with "Cont Q") as "%". subst l'.
-        iMod (ghost_var_update_2 (slice l t2 (b-1)) with "Cont Q")
+        iMod (ghost_var_update_2 (circ_slice l t2 (b-1)) with "Cont Q")
           as "[Cont Q]"...
         iMod (ghost_var_update_2 false with "γ👑 P") as "[γ👑 P]"...
       iCombine "Q P" as "Abst".
       iDestruct "Mono" as (hl1) "[Mono %HistPref1]".
         iDestruct (mono_deque_pop _ (b-1) with "Mono") as "Mono"...
-      iMod ("Commit" $! (slice l t2 (b-1)) true v with "[Cont]") as "Φ".
+      iMod ("Commit" $! (circ_slice l t2 (b-1)) true v with "[Cont]") as "Φ".
       { iSplit... fr. }
       iModIntro. iModIntro.
       

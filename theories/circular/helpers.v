@@ -49,17 +49,43 @@ Section heap.
 End heap.
 
 Section modulo.
-  Context {A : Type}.
-
   Lemma rem_mod_eq (x y : nat) : (0 < y) → (x `rem` y)%Z = x `mod` y.
   Proof.
     intros Hpos. rewrite Z.rem_mod_nonneg; [rewrite Nat2Z.inj_mod| |]; lia.
   Qed.
 
-  Lemma mod_lookup (l : list A) i :
-    length l ≠ 0 → is_Some (l !! (i `mod` (length l))).
+  Lemma mod_neq a b n :
+    a < b < a+n → a `mod` n ≠ b `mod` n.
+  Proof. Admitted.
+
+  Context {A : Type}.
+  Implicit Types l : list A.
+  Definition mod_set l i v := <[i `mod` length l:=v]> l.
+  Definition mod_get l i := l !! (i `mod` length l).
+
+  Lemma mod_get_is_Some l i :
+    length l ≠ 0 → is_Some (mod_get l i).
+  Proof. intros H. by apply lookup_lt_is_Some, Nat.mod_upper_bound. Qed.
+
+  Lemma mod_set_length l i v : length (mod_set l i v) = length l.
+  Proof. by rewrite insert_length. Qed.
+
+  Lemma mod_set_get l i j v :
+    length l ≠ 0 →
+    i `mod` length l = j `mod` length l →
+    mod_get (mod_set l i v) j = Some v.
   Proof.
-    intros H. by apply lookup_lt_is_Some, Nat.mod_upper_bound.
+    intros H Hij. unfold mod_get, mod_set.
+    rewrite insert_length Hij list_lookup_insert; auto.
+    by apply Nat.mod_upper_bound.
+  Qed.
+
+  Lemma mod_set_get_ne l i j v :
+    i `mod` length l ≠ j `mod` length l →
+    mod_get (mod_set l i v) j = mod_get l j.
+  Proof.
+    intros Hij. unfold mod_get, mod_set.
+    by rewrite insert_length list_lookup_insert_ne.
   Qed.
 End modulo.
 
@@ -71,7 +97,7 @@ Section list.
   Fixpoint circ_slice_d l i d :=
     match d with
     | O => []
-    | S d' => match (l !! (i `mod` (length l))) with
+    | S d' => match mod_get l i with
       | Some v => v :: circ_slice_d l (S i) d'
       | None => []
       end
@@ -110,7 +136,7 @@ Section list.
 *)
   Lemma circ_slice_extend_right l i j v :
     length l ≠ 0 →
-    i ≤ j → l !! (j `mod` (length l)) = Some v →
+    i ≤ j → mod_get l j = Some v →
     circ_slice l i (S j) = circ_slice l i j ++ [v].
   Proof.
     unfold circ_slice. intros Hlen Hij Hj.
@@ -118,8 +144,7 @@ Section list.
     remember (j - i) as d. revert i Hij Heqd.
     induction d; intros.
     - simpl. replace i with j by lia. by rewrite Hj.
-    - assert (is_Some (l !! (i `mod` (length l)))) as [vi Vi].
-      { by apply mod_lookup. }
+    - assert (is_Some (mod_get l i)) as [vi Vi]. 1: by apply mod_get_is_Some.
       simpl. rewrite Vi. simpl.
       rewrite <- (IHd (S i)); try lia. auto.
   Qed.
@@ -127,34 +152,30 @@ Section list.
   Lemma circ_slice_update_right l i j v :
     length l ≠ 0 →
     i ≤ j < (i + length l) →
-    circ_slice (<[(j `mod` (length l)):=v]> l) i j = circ_slice l i j.
+    circ_slice (mod_set l j v) i j = circ_slice l i j.
   Proof.
     unfold circ_slice. intros Hlen Hij.
     remember (j - i) as d. revert i Hij Heqd.
     induction d; intros; auto.
     assert (i < j) by lia.
-    assert (is_Some (l !! (i `mod` (length l)))) as [vi Vi].
-      { by apply mod_lookup. }
-    assert (
-      (<[j `mod` length l:=v]> l) !!
-      (i `mod` (length (<[j `mod` length l:=v]> l)))
-      = Some vi
-    ) as Vi'.
-      { rewrite insert_length list_lookup_insert_ne; auto.
-        admit. } (* a < b < a+n  →  a%n ≠ b%n *)
+    assert (is_Some (mod_get l i)) as [vi Vi]. 1: by apply mod_get_is_Some.
+    assert (mod_get (mod_set l j v) i = Some vi) as Vi'.
+    { rewrite mod_set_get_ne; auto. assert (i < j < i + length l) by lia.
+      apply (mod_neq _ _ (length l)) in H0. lia. }
     simpl. rewrite Vi Vi'.
     rewrite <- (IHd (S i)); try lia. auto.
-  Admitted.
-(*
-  Lemma slice_shrink_right l i j v :
-    i < j → l !! (j - 1) = Some v →
-    slice l i j = slice l i (j - 1) ++ [v].
-  Proof.
-    intros. replace j with (S (j - 1)) by lia.
-    erewrite slice_extend_right; eauto; try lia.
-    by replace (S (j - 1)) with j by lia.
   Qed.
 
+  Lemma circ_slice_shrink_right l i j v :
+    length l ≠ 0 →
+    i < j → mod_get l (j - 1) = Some v →
+    circ_slice l i j = circ_slice l i (j - 1) ++ [v].
+  Proof.
+    intros. replace j with (S (j - 1)) by lia.
+    erewrite circ_slice_extend_right; eauto; try lia.
+    by replace (S (j - 1)) with j by lia.
+  Qed.
+(*
   Lemma slice_shrink_left l i j v :
     i < j → l !! i = Some v →
     slice l i j = v :: slice l (S i) j.
