@@ -48,10 +48,13 @@ Section heap.
   Qed.
 End heap.
 
-Section neq.
+Section nat.
   Lemma neq_symm (x y : nat) : x ≠ y → y ≠ x.
   Proof. lia. Qed.
-End neq.
+
+  Lemma lt_mult (n a b : nat) : n ≠ 0 → n*a < n*b → a < b.
+  Proof. intros. induction n; lia. Qed.
+End nat.
 
 Section modulo.
   Lemma rem_mod_eq (x y : nat) : (0 < y) → (x `rem` y)%Z = x `mod` y.
@@ -61,7 +64,18 @@ Section modulo.
 
   Lemma mod_neq a b n :
     a < b < a+n → a `mod` n ≠ b `mod` n.
-  Proof. Admitted.
+  Proof.
+    intros H amn. assert (n ≠ 0). 1: lia.
+    assert (Ha := PeanoNat.Nat.div_mod a n).
+    assert (Hb := PeanoNat.Nat.div_mod b n).
+    rewrite Ha in H; auto. rewrite Hb in H; auto.
+    rewrite amn in H.
+    assert (n*a`div`n < n*b`div`n < n*a`div`n + n) by lia.
+    replace (n*a`div`n + n) with (n*(a`div`n + 1)) in H1 by lia.
+    assert (a`div`n < b`div`n < a`div`n + 1); try lia.
+    destruct H1 as [H1A H1B].
+    apply lt_mult in H1A; auto. apply lt_mult in H1B; auto.
+  Qed.
 
   Context {A : Type}.
   Implicit Types l : list A.
@@ -113,31 +127,7 @@ Section list.
   Proof.
     unfold circ_slice. intros H. by replace (j-i) with 0 by lia.
   Qed.
-(*
-  Lemma slice_0 l j : slice l 0 j = take j l.
-  Proof.
-    unfold slice. rewrite drop_0.
-    by replace (j - 0) with j by lia.
-  Qed.
 
-  Lemma slice_length l i j :
-    i ≤ j → j ≤ length l → length (slice l i j) = j - i.
-  Proof.
-    unfold slice. intros H1 H2.
-    rewrite take_length drop_length. lia.
-  Qed.
-
-  Lemma slice_insert_right l i j k v :
-    j ≤ k →
-    slice (<[k:=v]> l) i j = slice l i j.
-  Proof.
-    unfold slice. intros H.
-    destruct (decide (i ≤ j)).
-    - rewrite drop_insert_le; [|lia].
-      rewrite take_insert; auto. lia.
-    - replace (j-i) with 0 by lia. auto.
-  Qed.
-*)
   Lemma circ_slice_extend_right l i j v :
     length l ≠ 0 →
     i ≤ j → mod_get l j = Some v →
@@ -188,65 +178,5 @@ Section list.
     unfold circ_slice. intros H Hij Hi.
     replace (j - i) with (S (j - S i)) by lia. simpl.
     by rewrite Hi.
-  Qed.
-
-  (* prefix *)
-(*
-  Lemma take_prefix i l :
-  take i l `prefix_of` l.
-  Proof.
-    revert i; induction l; intros.
-    - by rewrite take_nil.
-    - destruct i; simpl.
-      + apply prefix_nil.
-      + by apply prefix_cons.
-  Qed.
-
-  Lemma prefix_take l i j :
-    i ≤ j → (take i l) `prefix_of` (take j l).
-  Proof.
-    intros H.
-    destruct (decide (j ≤ length l)).
-    - rewrite (take_slice l i j); auto.
-      by apply prefix_app_r.
-    - replace (take j l) with l. 2: rewrite take_ge; auto; try lia.
-      apply take_prefix.
-  Qed.
-*)
-  Lemma reverse_equal l1 l2 :
-    reverse l1 = reverse l2 → l1 = l2.
-  Proof.
-    intros.
-    rewrite <- (reverse_involutive l1).
-    rewrite <- (reverse_involutive l2). by rewrite H.
-  Qed.
-
-  Lemma snoc_equal l1 l2 x y :
-    l1 ++ [x] = l2 ++ [y] → l1 = l2.
-  Proof.
-    intros.
-    rewrite <- (reverse_involutive (l1 ++ [x])) in H.
-    rewrite <- (reverse_involutive (l2 ++ [y])) in H.
-    do 2 rewrite reverse_snoc in H.
-    apply reverse_equal in H.
-    injection H; intros. by apply reverse_equal.
-  Qed.
-
-  Lemma prefix_app_same_prefix l1 l2 l3 :
-    l1 `prefix_of` l2 ++ l3 → length l1 = length l2 →
-    l1 = l2.
-  Proof.
-    unfold prefix.
-    induction l3 using rev_ind; intros [k H] Hl.
-    - rewrite app_nil_r in H. subst. rewrite app_length in Hl.
-      destruct k.
-      + by rewrite app_nil_r.
-      + simpl in Hl. lia.
-    - apply IHl3; auto.
-      destruct k using rev_ind.
-      + rewrite app_nil_r in H. subst.
-        do 2 rewrite app_length in Hl. simpl in Hl. lia.
-      + exists k. do 2 rewrite app_assoc in H.
-        by apply snoc_equal in H.
   Qed.
 End list.
