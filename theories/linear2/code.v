@@ -720,7 +720,22 @@ Section proof.
         destruct Hist3 as [NO|[Hist3 Htb3]]...
         iDestruct (mono_deque_lb_history with "Mlb4") as "%Hist4".
         destruct Hist4 as [NO|[Hist4 Htb4]]...
-      assert (l3 !! t4 = l4 !! t4). { admit. }
+      iDestruct (mono_deque_lb_lookup _ t4 with "Mlb3 Mlb4") as "%Q"...
+      assert (l3 !! t4 = l4 !! t4).
+(* TODO formatting *)
+(* basically, this works because
+  1. hl is monotonic, so hl3 !! t4 = hl4 !! t4
+  2. but hl matches l, so hl3 !! t4 = l3 !! t4 and hl4 !! t4 = l4 !! t4
+*)
+        { assert (is_Some (hl3 !! t4)). { apply lookup_lt_is_Some... }
+        destruct H.
+        assert (is_Some (hl4 !! t4)). { apply lookup_lt_is_Some... }
+        destruct H0.
+        eapply prefix_lookup in H as HH...
+        eapply prefix_lookup in H0 as HH0...
+        rewrite H in Q. rewrite H0 in Q. destruct Q.
+        rewrite HH HH0...
+        }
         rewrite H in Hv. clear H.
       iDestruct "Phys" as "(t↦ & b↦ & arr↦)".
         wp_cmpxchg_suc.
