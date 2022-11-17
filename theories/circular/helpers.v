@@ -48,6 +48,11 @@ Section heap.
   Qed.
 End heap.
 
+Section neq.
+  Lemma neq_symm (x y : nat) : x ≠ y → y ≠ x.
+  Proof. lia. Qed.
+End neq.
+
 Section modulo.
   Lemma rem_mod_eq (x y : nat) : (0 < y) → (x `rem` y)%Z = x `mod` y.
   Proof.
