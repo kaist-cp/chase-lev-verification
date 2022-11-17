@@ -103,13 +103,12 @@ Section list.
       end
     end.
   Definition circ_slice l i j := circ_slice_d l i (j-i).
-(*
-  Lemma slice_to_nil l i j : (i >= j) → slice l i j = [].
-  Proof.
-    unfold slice. intros H.
-    replace (j-i) with 0 by lia. auto.
-  Qed.
 
+  Lemma circ_slice_to_nil l i j : i ≥ j → circ_slice l i j = [].
+  Proof.
+    unfold circ_slice. intros H. by replace (j-i) with 0 by lia.
+  Qed.
+(*
   Lemma slice_0 l j : slice l 0 j = take j l.
   Proof.
     unfold slice. rewrite drop_0.
@@ -175,28 +174,17 @@ Section list.
     erewrite circ_slice_extend_right; eauto; try lia.
     by replace (S (j - 1)) with j by lia.
   Qed.
-(*
-  Lemma slice_shrink_left l i j v :
-    i < j → l !! i = Some v →
-    slice l i j = v :: slice l (S i) j.
+
+  Lemma circ_slice_shrink_left l i j v :
+    length l ≠ 0 →
+    i < j → mod_get l i = Some v →
+    circ_slice l i j = v :: circ_slice l (S i) j.
   Proof.
-    unfold slice. intros Hij Hi.
-    replace (j - i) with (S (j - S i)) by lia.
-    erewrite drop_S; eauto.
+    unfold circ_slice. intros H Hij Hi.
+    replace (j - i) with (S (j - S i)) by lia. simpl.
+    by rewrite Hi.
   Qed.
 
-  Lemma take_slice l i j :
-    i ≤ j ≤ length l → take j l = take i l ++ slice l i j.
-  Proof.
-    intros H. induction i.
-    { simpl. by rewrite slice_0. }
-    assert (is_Some (l !! i)) as [x Hi].
-    { apply lookup_lt_is_Some. lia. }
-    erewrite take_S_r; eauto.
-    list_simplifier. rewrite <- slice_shrink_left; auto; try lia.
-    apply IHi; lia.
-  Qed.
-*)
   (* prefix *)
 (*
   Lemma take_prefix i l :

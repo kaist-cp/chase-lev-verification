@@ -568,8 +568,9 @@ Section proof.
       wp_pures. case_bool_decide... wp_pures.
 
       (* read [b2-1] *)
-      wp_bind (! _)%E.
-      iApply (wp_load_offset with "arr👑")... iNext. iIntros "arr👑".
+      wp_bind (! _)%E. rewrite rem_mod_eq...
+      iApply (wp_load_offset with "arr👑"). 1: rewrite -HL...
+      iNext. iIntros "arr👑".
       wp_pures. case_bool_decide... wp_pures. iApply "Φ". fr. }
 
     (* otherwise... *)
@@ -605,9 +606,10 @@ Section proof.
       wp_pures. iApply "Φ". fr. }
     
     (* read [b2-1] *)
-    wp_bind (! _)%E.
-    assert (is_Some (l !! (b-1))) as [v Hv]...
-    iApply (wp_load_offset with "arr👑")... iNext. iIntros "arr👑".
+    wp_bind (! _)%E. rewrite rem_mod_eq...
+    destruct (mod_get_is_Some l (b-1)) as [v Hv]...
+    iApply (wp_load_offset with "arr👑"). 1: rewrite -HL...
+    iNext. iIntros "arr👑".
     wp_pures.
 
     (* cas top, we already handled normal pop *)
@@ -639,7 +641,7 @@ Section proof.
         encode_agree Enc.
       iDestruct "Abst" as "[Q P]".
         iDestruct (ghost_var_agree with "Cont Q") as "%". subst l'.
-        erewrite slice_shrink_left... rewrite slice_to_nil...
+        erewrite circ_slice_shrink_left... rewrite circ_slice_to_nil...
         iMod (ghost_var_update_2 [] with "Cont Q") as "[Cont Q]"...
       iCombine "Q P" as "Abst".
       iMod ("Commit" $! [] true v with "[Cont]") as "Φ".
@@ -650,7 +652,7 @@ Section proof.
       replace (S (b-1)) with b...
       iModIntro. iSplitL "Phys Abst Mono".
         { iExists _,_,_, b,b,_,true. repeat iSplit...
-          rewrite slice_to_nil... fr. }
+          rewrite circ_slice_to_nil... fr. }
       wp_pures.
 
       (* store bot *)
