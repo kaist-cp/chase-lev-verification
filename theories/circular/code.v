@@ -757,16 +757,18 @@ Section proof.
     assert (t1 < b2) as Htb12. 1: destruct Pop2... clear H.
 
     (* read [t1] *)
-    wp_bind (! _)%E.
+    wp_bind (! _)%E. rewrite rem_mod_eq...
       iInv "Inv" as (γq' γpop' γm' t3 b3 l3 Pop3)
         ">(%Enc' & %Bound3 & Phys & Abst & Mono)".
         encode_agree Enc.
       iDestruct "Mono" as (hl3) "[Mono %HistPref3]".
         iDestruct (mono_deque_get_lb with "Mono") as "#Mlb3".
         iDestruct (mono_deque_auth_lb_top with "Mono Mlb2") as "%Ht23".
-      assert (is_Some (l3 !! t1)) as [v Hv]...
+      destruct (mod_get_is_Some l3 t1) as [v Hv]...
       iDestruct "Phys" as "(t↦ & b↦ & arr↦)".
-        iApply (wp_load_offset with "arr↦")... iNext. iIntros "arr↦".
+        iApply (wp_load_offset with "arr↦").
+        1: { destruct Bound3. rewrite -e... }
+        iNext. iIntros "arr↦".
       iCombine "t↦ b↦ arr↦" as "Phys".
     iModIntro. iSplitL "Phys Abst Mono".
       { iExists _,_,_, t3,b3,l3,Pop3. repeat iSplit... fr. }
@@ -787,7 +789,11 @@ Section proof.
         destruct Hist3 as [NO|[Hist3 Htb3]]...
         iDestruct (mono_deque_lb_history with "Mlb4") as "%Hist4".
         destruct Hist4 as [NO|[Hist4 Htb4]]...
-      assert (l3 !! t4 = l4 !! t4). { admit. }
+      iDestruct (mono_deque_lb_lookup _ t4 with "Mlb3 Mlb4") as "%H34"...
+      assert (mod_get l3 t4 = mod_get l4 t4).
+      { assert (mod_get l3 t4 = hl3 !! t4) by admit.
+        assert (mod_get l4 t4 = hl4 !! t4) by admit.
+        rewrite H H0... }
         rewrite H in Hv. clear H.
       iDestruct "Phys" as "(t↦ & b↦ & arr↦)".
         wp_cmpxchg_suc.
@@ -802,14 +808,13 @@ Section proof.
         encode_agree Enc.
       iDestruct "Abst" as "[Q P]".
         iDestruct (ghost_var_agree with "Cont Q") as "%". subst l'.
-        iMod (ghost_var_update_2 (slice l4 (S t4) b4)
+        iMod (ghost_var_update_2 (circ_slice l4 (S t4) b4)
           with "Cont Q") as "[Cont Q]"...
       iCombine "Q P" as "Abst".
-      iMod ("Commit" $! (slice l4 (S t4) b4) true v with "[Cont]") as "Φ".
-        { iSplit. 1: fr. simpl. erewrite <- slice_shrink_left... }
+      iMod ("Commit" $! (circ_slice l4 (S t4) b4) true v with "[Cont]") as "Φ".
+        { iSplit. 1: fr. simpl. erewrite <- circ_slice_shrink_left... }
       iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, (S t4),b4,l4,Pop4. repeat iSplit... fr. fr.
-        case_decide... admit. }
+      { iExists _,_,_, (S t4),b4,l4,Pop4. repeat iSplit... fr. }
       wp_pures. iApply "Φ"...
     - (* fail *)
       iDestruct "Phys" as "(t↦ & b↦ & arr↦)".
