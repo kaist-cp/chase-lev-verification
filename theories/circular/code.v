@@ -57,6 +57,7 @@ Invariants:
 *)
 
 Section code.
+  (* t and b start from 1 because we have to be able to decrement b *)
   Definition new_deque : val :=
     λ: <>,
       let: "array" := AllocN #CAP_CONST #0 in
@@ -105,6 +106,8 @@ Section code.
       else NONE. (* fail *)
 End code.
 
+(** The CMRA we need. *)
+
 Class dequeG Σ := DequeG {
     deque_tokG :> ghost_varG Σ (list val);
     deque_popG :> ghost_varG Σ bool;
@@ -127,16 +130,16 @@ Section RA.
   Definition mono_deque_auth_own (γm : gname) (hl : list val) (t b : nat) : iProp :=
     ∃ (γl γt : gname),
     ⌜γm = encode (γl, γt)⌝ ∗
+    ⌜(length hl = t ∧ t = b) ∨ (length hl = S t ∧ t < b)⌝ ∗
     mono_list_auth_own γl 1 hl ∗
-    mono_nat_auth_own γt 1 t ∗
-    ⌜(length hl = t ∧ t = b) ∨ (length hl = S t ∧ t < b)⌝.
+    mono_nat_auth_own γt 1 t.
 
   Definition mono_deque_lb_own (γm : gname) (hl : list val) (t b : nat) : iProp :=
     ∃ (γl γt : gname),
     ⌜γm = encode (γl, γt)⌝ ∗
+    ⌜(length hl = t ∧ t = b) ∨ (length hl = S t ∧ t < b)⌝ ∗
     mono_list_lb_own γl hl ∗
-    mono_nat_lb_own γt t ∗
-    ⌜(length hl = t ∧ t = b) ∨ (length hl = S t ∧ t < b)⌝.
+    mono_nat_lb_own γt t.
 
   Lemma mono_deque_own_alloc v :
     ⊢ |==> ∃ γ, mono_deque_auth_own γ [v] 1 1.
@@ -150,12 +153,12 @@ Section RA.
   Lemma mono_deque_auth_history γm l t b :
     mono_deque_auth_own γm l t b -∗
     ⌜(length l = t ∧ t = b) ∨ (length l = S t ∧ t < b)⌝.
-  Proof. iIntros "(%γl & %γt & %ENC & L & N & %BOUND)". auto. Qed.
+  Proof. iIntros "(%γl & %γt & %ENC & %BOUND & L & N)". auto. Qed.
 
   Lemma mono_deque_lb_history γm l t b :
     mono_deque_lb_own γm l t b -∗
     ⌜(length l = t ∧ t = b) ∨ (length l = S t ∧ t < b)⌝.
-  Proof. iIntros "(%γl & %γt & %ENC & L & N & %BOUND)". auto. Qed.
+  Proof. iIntros "(%γl & %γt & %ENC & %BOUND & L & N)". auto. Qed.
 
   Lemma mono_deque_lb_lookup γm i l1 t1 b1 l2 t2 b2 :
     i < length l1 → i < length l2 →
@@ -163,8 +166,8 @@ Section RA.
     ⌜l1 !! i = l2 !! i⌝.
   Proof.
     iIntros (Hi Hv).
-    iIntros "(%γl & %γt & %ENC1 & L1 & N1 & %BOUND1)".
-    iIntros "(%γl' & %γt' & %ENC2 & L2 & N2 & %BOUND2)".
+    iIntros "(%γl & %γt & %ENC1 & %BOUND1 & L1 & N1)".
+    iIntros "(%γl' & %γt' & %ENC2 & %BOUND2 & L2 & N2)".
       encode_agree ENC1.
     assert (is_Some (l1 !! i)) as [v1 Hv1] by (rewrite lookup_lt_is_Some; auto).
     assert (is_Some (l2 !! i)) as [v2 Hv2] by (rewrite lookup_lt_is_Some; auto).
@@ -178,7 +181,7 @@ Section RA.
     mono_deque_auth_own γm l t b -∗
     mono_deque_lb_own γm l t b.
   Proof.
-    iIntros "(%γl & %γt & %ENC & L & N & %BOUND)".
+    iIntros "(%γl & %γt & %ENC & %BOUND & L & N)".
     iDestruct (mono_list_lb_own_get with "L") as "#Llb".
     iDestruct (mono_nat_lb_own_get with "N") as "#Nlb".
     iExists _,_. repeat iSplit; auto.
@@ -188,8 +191,8 @@ Section RA.
     mono_deque_auth_own γm l1 t1 b1 -∗ mono_deque_lb_own γm l2 t2 b2 -∗
     ⌜length l2 ≤ length l1⌝.
   Proof.
-    iIntros "(%γl & %γt & %ENC1 & L1 & N1 & %BOUND1)".
-    iIntros "(%γl' & %γt' & %ENC2 & L2 & N2 & %BOUND2)".
+    iIntros "(%γl & %γt & %ENC1 & %BOUND1 & L1 & N1)".
+    iIntros "(%γl' & %γt' & %ENC2 & %BOUND2 & L2 & N2)".
       encode_agree ENC1.
     iDestruct (mono_list_auth_lb_valid with "L1 L2") as "[_ %Pref]".
     by apply prefix_length in Pref.
@@ -201,8 +204,8 @@ Section RA.
   Proof.
     iIntros "D1 D2".
     iDestruct (mono_deque_auth_lb_length with "D1 D2") as "%D".
-    iDestruct "D1" as "(%γl & %γt & %ENC1 & L1 & N1 & %BOUND1)".
-    iDestruct "D2" as "(%γl' & %γt' & %ENC2 & L2 & N2 & %BOUND2)".
+    iDestruct "D1" as "(%γl & %γt & %ENC1 & %BOUND1 & L1 & N1)".
+    iDestruct "D2" as "(%γl' & %γt' & %ENC2 & %BOUND2 & L2 & N2)".
       encode_agree ENC1.
     iDestruct (mono_nat_lb_own_valid with "N1 N2") as "[_ %Le]".
     iPureIntro. lia.
@@ -215,7 +218,7 @@ Section RA.
       (if decide (S t = b) then l else l ++ [v])
       (S t) b.
   Proof.
-    iIntros (H) "(%γl & %γt & %ENC & L & N & %BOUND)".
+    iIntros (H) "(%γl & %γt & %ENC & %BOUND & L & N)".
     destruct BOUND; try lia.
     iMod (mono_nat_own_update (S t) with "N") as "[N _]". 1: lia.
     case_decide.
@@ -244,7 +247,7 @@ Section RA.
     ) →
     mono_deque_auth_own γm l1 t b1 ==∗ mono_deque_auth_own γm l2 t b2.
   Proof.
-    iIntros (H HU) "(%γl & %γt & %ENC & L & N & %BOUND)".
+    iIntros (H HU) "(%γl & %γt & %ENC & %BOUND & L & N)".
     destruct HU as [[Ht [v Hl]]|[Ht Hl]];
     destruct BOUND as [[Hl1 Hb]|[Hl1 Hb]]; try lia; subst.
     - iMod (mono_list_auth_own_update (l1 ++ [v]) with "L") as "[L _]".
@@ -259,10 +262,9 @@ Section RA.
     t < b1 → t < b2 →
     mono_deque_auth_own γm l t b1 -∗ mono_deque_auth_own γm l t b2.
   Proof.
-    iIntros (H1 H2) "(%γl & %γt & %ENC & L & N & %BOUND)".
+    iIntros (H1 H2) "(%γl & %γt & %ENC & %BOUND & L & N)".
     destruct BOUND as [[Hl1 Hb]|[Hl1 Hb]]; try lia.
     iExists _,_. repeat iSplit; auto; iFrame.
-    iPureIntro. lia.
   Qed.
 End RA.
 
@@ -270,21 +272,19 @@ Section proof.
   Context `{!heapGS Σ, !dequeG Σ} (N : namespace).
   Notation iProp := (iProp Σ).
 
-  (* TODO: change l to ↦∗{#1} & make another ghost_var in deque_content?
-     (see msqueue) *)
   Definition deque_inv (γ : gname) (arr top bot : loc) : iProp :=
     ∃ (γq γpop γm : gname) (t b : nat) (l : list val) (Popping : bool),
       ⌜γ = encode (γq, γpop, γm)⌝ ∗
       ⌜1 ≤ t ≤ b ∧ length l = CAP_CONST⌝ ∗
-      (* physical state *)
+      (* physical data *)
       ( let bp := if Popping then b-1 else b in
         top ↦ #t ∗ bot ↦{#1/2} #bp ∗ arr ↦∗{#1/2} l
       ) ∗
-      (* abstract state *)
+      (* logical data *)
       ( ghost_var γq (1/2) (circ_slice l t b) ∗
         ghost_var γpop (1/2) Popping
       ) ∗
-      (* monotonicity *)
+      (* history of determined elements *)
       ( ∃ (hl : list val),
         mono_deque_auth_own γm hl t b ∗
         ⌜t < b → hl !! t = mod_get l t⌝
@@ -317,11 +317,7 @@ Section proof.
     by iApply "IH".
   Qed.
 
-  Ltac fr :=
-    repeat iExists _;
-    try iFrame "arr↦"; try iFrame "arr↦1"; try iFrame "arr↦2"; 
-    iFrame; eauto.
-  Ltac autoall :=
+  Ltac extended_auto :=
     eauto; unfold CAP_CONST in *; unfold helpers.CAP_CONST in *;
     try by (
       repeat iNext; repeat iIntros; repeat intros;
@@ -330,6 +326,10 @@ Section proof.
       try rewrite Qp.half_half;
       try lia; done
     ).
+  Ltac fr :=
+    repeat iSplit; extended_auto; repeat iExists _;
+    try iFrame "arr↦"; try iFrame "arr↦1"; try iFrame "arr↦2"; 
+    iFrame; eauto.
 
   Lemma new_deque_spec :
     {{{ True }}}
@@ -337,7 +337,7 @@ Section proof.
     {{{ γ q, RET q;
       is_deque γ q ∗ deque_content γ [] ∗ own_deque γ q
     }}}.
-  Proof with autoall.
+  Proof with extended_auto.
     iIntros (Φ) "_ HΦ".
     wp_lam. wp_alloc arr as "[arr↦1 arr↦2]"...
     wp_pures. wp_alloc b as "[b↦1 b↦2]". wp_alloc t as "t↦".
@@ -346,9 +346,8 @@ Section proof.
     iMod (mono_deque_own_alloc #0) as (γm) "γm".
     iMod (inv_alloc N _ (deque_inv (encode (γq, γpop, γm)) arr t b)
       with "[t↦ b↦1 arr↦1 γq1 γpop1 γm]") as "Inv".
-    { iExists _,_,_, 1,1,(replicate 20 #0),false.
-      repeat iSplit... fr. fr... }
-    wp_pures. iModIntro. iApply "HΦ". iSplit; fr.
+    { iExists _,_,_, 1,1,(replicate 20 #0),false. fr. fr... }
+    wp_pures. iModIntro. iApply "HΦ". fr.
     iSplitL "γq2". 1: fr. iExists _,_,_, _,_,_,1,_. fr.
   Qed.
 
@@ -359,7 +358,7 @@ Section proof.
       push q v @ ↑N
     <<< deque_content γ (l ++ [v]),
       RET #(), own_deque γ q >>>.
-  Proof with autoall.
+  Proof with extended_auto.
     iIntros "#Is Own" (Φ) "AU".
       iDestruct "Own" as (γq γpop γm arr top bot b l)
         "(%Enc & -> & %HL & γ👑 & b👑 & arr👑)".
@@ -386,7 +385,7 @@ Section proof.
       iDestruct "Mono" as (hl) "[Mono %HistPref0]".
         iDestruct (mono_deque_get_lb with "Mono") as "#Mlb0".
     iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, t0,b,l,false. repeat iSplit... fr. }
+      { iExists _,_,_, t0,b,l,false. fr... }
     wp_pures.
 
     (* diverge *)
@@ -417,9 +416,9 @@ Section proof.
       iDestruct (mono_deque_auth_lb_top with "Mono Mlb0") as "%Ht01".
       iModIntro. iSplitL "Phys Abst Mono".
       { iExists _,_,_, t1,b,(mod_set l b v),false.
-        rewrite insert_length. repeat iSplit... fr.
+        rewrite insert_length. fr...
         rewrite circ_slice_update_right...
-        fr. fr. iPureIntro; intros. rewrite mod_set_get_ne...
+        fr. fr. iIntros "%". rewrite mod_set_get_ne...
         apply neq_symm, mod_neq... }
     wp_pures.
     replace (Z.of_nat b + 1)%Z with (Z.of_nat (S b))...
@@ -440,7 +439,7 @@ Section proof.
       iDestruct "Phys" as "(t↦ & b↦ & arr↦)".
         iDestruct (mapsto_agree with "b↦ b👑") as "%".
           injection H as [=H]. apply Nat2Z.inj in H. subst b2.
-        iDestruct (array_agree with "arr↦ arr👑") as "%".
+        iDestruct (array_agree with "arr↦ arr👑") as "%"...
           1: rewrite insert_length... subst l2.
         iCombine "b↦ b👑" as "b↦". wp_store.
         iDestruct "b↦" as "[b↦ b👑]".
@@ -450,20 +449,20 @@ Section proof.
         iMod (mono_deque_push _
           (if decide (t2 = b) then hl2 ++ [v] else hl2)
           (S b) with "Mono") as "Mono"...
-        { destruct (decide (t2 = b))... right; split... }
+        { destruct (decide (t2 = b))... right. split... }
       rewrite <- circ_slice_extend_right...
         2: rewrite mod_set_get...
       iMod ("Commit" with "[Cont]") as "Φ". 1: fr.
     iModIntro. iModIntro.
 
     iSplitL "Phys Abst Mono".
-    { iExists _,_,_, t2,(S b),(mod_set l b v),false.
-      repeat iSplit... fr. fr. case_decide...
+    { iExists _,_,_, t2,(S b),(mod_set l b v),false. fr... fr.
+      case_decide.
       - subst. destruct Hist2 as [[Hist2 _]|NO]...
         rewrite lookup_app_r... rewrite mod_set_get...
         rewrite Hist2. replace (b-b) with 0...
       - iPureIntro; intros. apply HistPref2... }
-    iApply "Φ". fr... repeat iSplit...
+    iApply "Φ". fr. fr.
   Qed.
 
   Lemma pop_spec γ q :
@@ -479,7 +478,7 @@ Section proof.
         | _ => False
         end,
       RET ov, own_deque γ q >>>.
-  Proof with autoall.
+  Proof with extended_auto.
     iIntros "#Is Own" (Φ) "AU".
       iDestruct "Own" as (γq γpop γm arr top bot b l)
         "(%Hγ & -> & %HL & γ👑 & b👑 & arr👑)".
@@ -508,7 +507,7 @@ Section proof.
         iDestruct (array_agree with "arr↦ arr👑") as "%"... subst l1.
       iCombine "t↦ b↦ arr↦" as "Phys".
       iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, t1,b,_,_... repeat iSplit... fr. }
+      { iExists _,_,_, t1,b,_,_... fr. }
     wp_pures.
 
     (* load top *)
@@ -543,13 +542,13 @@ Section proof.
       iCombine "Q P" as "Abst".
       iDestruct "Mono" as (hl1) "[Mono %HistPref1]".
         iDestruct (mono_deque_pop _ (b-1) with "Mono") as "Mono"...
-      iMod ("Commit" $! (circ_slice l t2 (b-1)) (SOMEV v) with "[Cont]") as "Φ".
-      { iSplit... fr. }
+      iMod ("Commit" $! (circ_slice l t2 (b-1)) (SOMEV v)
+        with "[Cont]") as "Φ". 1: fr.
       iModIntro. iModIntro.
       
       iSplitL "Phys Abst Mono".
-      { iExists _,_,_, t2,(b-1),l,false. repeat iSplit...
-        fr. fr. iPureIntro; intros. apply HistPref1... }
+      { iExists _,_,_, t2,(b-1),l,false. fr. fr.
+        iPureIntro; intros. apply HistPref1... }
       wp_pures. case_bool_decide... wp_pures.
 
       (* read [b2-1] *)
@@ -562,7 +561,7 @@ Section proof.
     iDestruct "Phys" as "(t↦ & b↦ & arr↦)". wp_load.
     iCombine "t↦ b↦ arr↦" as "Phys".
     iModIntro. iSplitL "Phys Abst Mono".
-    { iExists _,_,_, t2,b,_,true... repeat iSplit... fr. }
+    { iExists _,_,_, t2,b,_,true... fr. }
     wp_pures.
 
     (* empty *)
@@ -587,8 +586,9 @@ Section proof.
       iMod "AU" as (l') "[Cont [_ Commit]]".
       iMod ("Commit" $! l' NONEV with "[Cont]") as "Φ"...
       iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, t3,b,_,false... repeat iSplit... fr. }
-      wp_pures. iApply "Φ". fr. }
+      { iExists _,_,_, t3,b,_,false. fr. }
+      wp_pures. iApply "Φ". fr.
+    }
     
     (* read [b2-1] *)
     wp_bind (! _)%E. rewrite rem_mod_eq...
@@ -629,14 +629,13 @@ Section proof.
         erewrite circ_slice_shrink_left... rewrite circ_slice_to_nil...
         iMod (ghost_var_update_2 [] with "Cont Q") as "[Cont Q]"...
       iCombine "Q P" as "Abst".
-      iMod ("Commit" $! [] (SOMEV v) with "[Cont]") as "Φ".
-        { iSplit... fr. }
+      iMod ("Commit" $! [] (SOMEV v) with "[Cont]") as "Φ". 1: fr.
       iDestruct "Mono" as (hl1) "[Mono %HistPref1]".
         iMod (mono_deque_pop_singleton _ _ (b-1) with "[Mono]") as "Mono".
         { replace (S (b-1)) with b... }
       replace (S (b-1)) with b...
       iModIntro. iSplitL "Phys Abst Mono".
-        { iExists _,_,_, b,b,_,true. repeat iSplit...
+        { iExists _,_,_, b,b,_,true. fr.
           rewrite circ_slice_to_nil... fr. fr... }
       wp_pures.
 
@@ -659,7 +658,7 @@ Section proof.
         iDestruct "b↦" as "[b👑 b↦]".
       iCombine "t↦ b↦ arr↦" as "Phys".
       iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, t4,b,_,false. repeat iSplit... fr. }
+      { iExists _,_,_, t4,b,_,false. fr. }
       wp_pures. iApply "Φ". fr.
     - (* fail *)
       iDestruct "Phys" as "(t↦ & b↦ & arr↦)".
@@ -669,7 +668,7 @@ Section proof.
       iMod "AU" as (l') "[Cont [_ Commit]]".
       iMod ("Commit" $! l' NONEV with "[Cont]") as "Φ"...
       iModIntro. iSplitL "Phys Abst Mono".
-        { iExists _,_,_, t3,b,_,true. repeat iSplit... fr. }
+        { iExists _,_,_, t3,b,_,true. fr. }
       wp_pures.
 
       (* store bot *)
@@ -691,7 +690,7 @@ Section proof.
       iCombine "t↦ b↦ arr↦" as "Phys".
 
       iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, t4,b,_,false. repeat iSplit... fr. }
+      { iExists _,_,_, t4,b,_,false. fr. }
       wp_pures. iApply "Φ". fr.
   Qed.
 
@@ -707,7 +706,7 @@ Section proof.
         | _ => False
         end,
       RET ov >>>.
-  Proof with autoall.
+  Proof with extended_auto.
     iIntros "#Is" (Φ) "AU".
       iDestruct "Is" as (arr top bot) "[%Is Inv]". subst.
     wp_lam. unfold code.arr, code.top, code.bot. wp_pures.
@@ -721,7 +720,7 @@ Section proof.
       iDestruct "Phys" as "(t↦ & b↦ & arr↦)". wp_load.
       iCombine "t↦ b↦ arr↦" as "Phys".
     iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, t1,b1,l1,Pop1. repeat iSplit... fr. }
+      { iExists _,_,_, t1,b1,l1,Pop1. fr. }
     wp_pures.
 
     (* load bot *)
@@ -735,7 +734,7 @@ Section proof.
       iDestruct "Phys" as "(t↦ & b↦ & arr↦)". wp_load.
       iCombine "t↦ b↦ arr↦" as "Phys".
     iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, t2,b2,l2,Pop2. repeat iSplit... fr. }
+      { iExists _,_,_, t2,b2,l2,Pop2. fr. }
     wp_pures.
 
     (* no chance to steal *)
@@ -760,7 +759,7 @@ Section proof.
         iNext. iIntros "arr↦".
       iCombine "t↦ b↦ arr↦" as "Phys".
     iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, t3,b3,l3,Pop3. repeat iSplit... fr. }
+      { iExists _,_,_, t3,b3,l3,Pop3. fr. }
     wp_pures.
 
     (* cas top *)
@@ -801,11 +800,10 @@ Section proof.
       iCombine "Q P" as "Abst".
       iMod ("Commit" $! (circ_slice l4 (S t4) b4) (SOMEV v)
         with "[Cont]") as "Φ".
-        { iSplit. 1: fr. simpl. erewrite <- circ_slice_shrink_left... }
+        { fr. simpl. erewrite <- circ_slice_shrink_left... }
       iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, (S t4),b4,l4,Pop4. repeat iSplit...
-        fr. fr. iPureIntro; intros. case_decide...
-        rewrite Hv' lookup_app_r...
+      { iExists _,_,_, (S t4),b4,l4,Pop4. fr. fr.
+        iPureIntro; intros. case_decide... rewrite Hv' lookup_app_r...
         replace (S t4 - length hl4) with 0... }
       wp_pures. iApply "Φ"...
     - (* fail *)
@@ -815,10 +813,9 @@ Section proof.
       iMod "AU" as (l) "[Cont [_ Commit]]".
         iDestruct "Cont" as (γq' γpop' γm') "[%Enc' Cont]".
         encode_agree Enc.
-      iMod ("Commit" $! l NONEV with "[Cont]") as "Φ".
-        { iSplit... fr. }
+      iMod ("Commit" $! l NONEV with "[Cont]") as "Φ". 1: fr.
       iModIntro. iSplitL "Phys Abst Mono".
-        { iExists _,_,_, t4,b4,l4,Pop4. repeat iSplit... fr. }
+        { iExists _,_,_, t4,b4,l4,Pop4. fr. }
       wp_pures. iApply "Φ"...
   Qed.
 End proof.
