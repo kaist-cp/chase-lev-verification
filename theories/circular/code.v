@@ -53,7 +53,7 @@ Invariants:
 - arr |-> l
 - those in history are preserved (done by mono_list)
 - top always increases (done by mono_nat)
-- l and history matches "somehow (TODO)"
+- l and history matches at top
 *)
 
 Section code.
@@ -75,7 +75,6 @@ Section code.
       "array" +ₗ ("b" `rem` #CAP_CONST) <- "v" ;;
       bot "deque" <- "b" + #1.
   
-  (* TODO: change to NONE/SOME *)
   Definition pop : val :=
     λ: "deque",
       let: "array" := arr "deque" in
@@ -83,28 +82,27 @@ Section code.
       bot "deque" <- "b" ;;
       let: "t" := !(top "deque") in
       if: "b" < "t" then (* empty pop *)
-        bot "deque" <- "t" ;; (#false, #())
+        bot "deque" <- "t" ;; NONE
       else let: "v" := !("array" +ₗ ("b" `rem` #CAP_CONST)) in
-      if: "t" < "b" then (#true, "v") (* normal case *)
+      if: "t" < "b" then SOME "v" (* normal case *)
       else let: "ok" := CAS (top "deque") "t" ("t" + #1) in
       bot "deque" <- "t" + #1 ;;
-      if: "ok" then (#true, "v") (* popped *)
-      else (#false, #()). (* stolen *)
+      if: "ok" then SOME "v" (* popped *)
+      else NONE. (* stolen *)
 
   (* NOTE: b ≤ t doesn't necessarily mean the deque was empty!
     It can also be the case that there was one element and
     the owner thread prematurely decremented b trying to pop. *)
-  (* TODO: change to NONE/SOME *)
   Definition steal : val :=
     λ: "deque",
       let: "array" := arr "deque" in
       let: "t" := !(top "deque") in
       let: "b" := !(bot "deque") in
-      if: "b" ≤ "t" then (#false, #()) (* no chance *)
+      if: "b" ≤ "t" then NONE (* no chance *)
       else let: "v" := !("array" +ₗ ("t" `rem` #CAP_CONST)) in
       if: CAS (top "deque") "t" ("t" + #1)
-      then (#true, "v") (* success *)
-      else (#false, #()). (* fail *)
+      then SOME "v" (* success *)
+      else NONE. (* fail *)
 End code.
 
 Class dequeG Σ := DequeG {
@@ -139,36 +137,16 @@ Section RA.
     mono_list_lb_own γl hl ∗
     mono_nat_lb_own γt t ∗
     ⌜(length hl = t ∧ t = b) ∨ (length hl = S t ∧ t < b)⌝.
-  (*
-  Lemma mono_deque_own_alloc l :
-    ⌜length l = CAP_CONST⌝ ==∗ ∃ γ, mono_deque_auth_own γ l 1 1.
+
+  Lemma mono_deque_own_alloc v :
+    ⊢ |==> ∃ γ, mono_deque_auth_own γ [v] 1 1.
   Proof.
-    iIntros (H).
-    iMod (mono_list_own_alloc (take 1 l)) as (γl) "[L _]".
+    iMod (mono_list_own_alloc [v]) as (γl) "[L _]".
     iMod (mono_nat_own_alloc 1) as (γtb) "[N _]".
     iExists (encode (γl, γtb)). iModIntro.
     iExists _,_. iSplit; iFrame; auto.
-    iPureIntro. unfold CAP_CONST. split; auto. lia.
   Qed.
 
-  Lemma mono_deque_definite_length γm l t b :
-    mono_deque_lb_own γm l t b -∗ ⌜definite t b ≤ b ≤ length l⌝.
-  Proof.
-    iIntros  "(%γl & %γtb & %ENC & [%BOUND1 %BOUND2] & L & N)".
-    unfold definite. case_decide; iPureIntro; try lia.
-  Qed.
-
-  Lemma mono_deque_auth_insert γm l t b i v :
-    (definite t b) ≤ i →
-    mono_deque_auth_own γm l t b -∗
-    mono_deque_auth_own γm (<[i:=v]> l) t b.
-  Proof.
-    iIntros (H) "(%γl & %γtb & %ENC & %BOUND & L & N)".
-    iExists _,_. repeat iSplit; auto. all: try iPureIntro; try lia.
-    1: rewrite insert_length; lia.
-    rewrite take_insert; auto. iFrame.
-  Qed.
-  *)
   Lemma mono_deque_auth_history γm l t b :
     mono_deque_auth_own γm l t b -∗
     ⌜(length l = t ∧ t = b) ∨ (length l = S t ∧ t < b)⌝.
@@ -344,9 +322,7 @@ Section proof.
     try iFrame "arr↦"; try iFrame "arr↦1"; try iFrame "arr↦2"; 
     iFrame; eauto.
   Ltac autoall :=
-    eauto;
-    unfold CAP_CONST in *; unfold helpers.CAP_CONST in *;
-    (*unfold definite;*)
+    eauto; unfold CAP_CONST in *; unfold helpers.CAP_CONST in *;
     try by (
       repeat iNext; repeat iIntros; repeat intros;
       try case_decide; try iPureIntro;
@@ -355,13 +331,11 @@ Section proof.
       try lia; done
     ).
 
-(*
   Lemma new_deque_spec :
     {{{ True }}}
       new_deque #()
-    {{{ γq γpop γm q, RET q;
-      is_deque γq γpop γm q ∗ deque_content γq [] ∗
-      own_deque γq γpop q
+    {{{ γ q, RET q;
+      is_deque γ q ∗ deque_content γ [] ∗ own_deque γ q
     }}}.
   Proof with autoall.
     iIntros (Φ) "_ HΦ".
@@ -369,15 +343,15 @@ Section proof.
     wp_pures. wp_alloc b as "[b↦1 b↦2]". wp_alloc t as "t↦".
     iMod (ghost_var_alloc []) as (γq) "[γq1 γq2]".
     iMod (ghost_var_alloc false) as (γpop) "[γpop1 γpop2]".
-    iMod (mono_deque_own_alloc (replicate (Z.to_nat CAP_CONST) #0)
-      with "[]") as (γm) "γm"...
-    iMod (inv_alloc N _ (deque_inv γq γpop γm arr t b)
+    iMod (mono_deque_own_alloc #0) as (γm) "γm".
+    iMod (inv_alloc N _ (deque_inv (encode (γq, γpop, γm)) arr t b)
       with "[t↦ b↦1 arr↦1 γq1 γpop1 γm]") as "Inv".
-    { fr. rewrite replicate_length... }
+    { iExists _,_,_, 1,1,(replicate 20 #0),false.
+      repeat iSplit... fr. fr... }
     wp_pures. iModIntro. iApply "HΦ". iSplit; fr.
-    iExists _,_,_,1,_. fr.
+    iSplitL "γq2". 1: fr. iExists _,_,_, _,_,_,1,_. fr.
   Qed.
-*)
+
   Lemma push_spec γ q (v : val) :
     is_deque γ q -∗
     own_deque γ q -∗
@@ -497,10 +471,14 @@ Section proof.
     own_deque γ q -∗
     <<< ∀∀ l : list val, deque_content γ l >>>
       pop q @ ↑N
-    <<< ∃∃ (l' : list val) (b : bool) (v : val),
+    <<< ∃∃ (l' : list val) (ov : val),
         deque_content γ l' ∗
-        ⌜l = if b then l'++[v] else l'⌝ ,
-      RET (#b, v), own_deque γ q >>>.
+        match ov with
+        | NONEV => ⌜l = l'⌝
+        | SOMEV v => ⌜l = l' ++ [v]⌝
+        | _ => False
+        end,
+      RET ov, own_deque γ q >>>.
   Proof with autoall.
     iIntros "#Is Own" (Φ) "AU".
       iDestruct "Own" as (γq γpop γm arr top bot b l)
@@ -565,7 +543,7 @@ Section proof.
       iCombine "Q P" as "Abst".
       iDestruct "Mono" as (hl1) "[Mono %HistPref1]".
         iDestruct (mono_deque_pop _ (b-1) with "Mono") as "Mono"...
-      iMod ("Commit" $! (circ_slice l t2 (b-1)) true v with "[Cont]") as "Φ".
+      iMod ("Commit" $! (circ_slice l t2 (b-1)) (SOMEV v) with "[Cont]") as "Φ".
       { iSplit... fr. }
       iModIntro. iModIntro.
       
@@ -607,7 +585,7 @@ Section proof.
       iCombine "t↦ b↦ arr↦" as "Phys".
       (* AU *)
       iMod "AU" as (l') "[Cont [_ Commit]]".
-      iMod ("Commit" $! l' false #() with "[Cont]") as "Φ"...
+      iMod ("Commit" $! l' NONEV with "[Cont]") as "Φ"...
       iModIntro. iSplitL "Phys Abst Mono".
       { iExists _,_,_, t3,b,_,false... repeat iSplit... fr. }
       wp_pures. iApply "Φ". fr. }
@@ -651,7 +629,7 @@ Section proof.
         erewrite circ_slice_shrink_left... rewrite circ_slice_to_nil...
         iMod (ghost_var_update_2 [] with "Cont Q") as "[Cont Q]"...
       iCombine "Q P" as "Abst".
-      iMod ("Commit" $! [] true v with "[Cont]") as "Φ".
+      iMod ("Commit" $! [] (SOMEV v) with "[Cont]") as "Φ".
         { iSplit... fr. }
       iDestruct "Mono" as (hl1) "[Mono %HistPref1]".
         iMod (mono_deque_pop_singleton _ _ (b-1) with "[Mono]") as "Mono".
@@ -689,7 +667,7 @@ Section proof.
       iCombine "t↦ b↦ arr↦" as "Phys".
 
       iMod "AU" as (l') "[Cont [_ Commit]]".
-      iMod ("Commit" $! l' false #() with "[Cont]") as "Φ"...
+      iMod ("Commit" $! l' NONEV with "[Cont]") as "Φ"...
       iModIntro. iSplitL "Phys Abst Mono".
         { iExists _,_,_, t3,b,_,true. repeat iSplit... fr. }
       wp_pures.
@@ -721,10 +699,14 @@ Section proof.
     is_deque γ q -∗
     <<< ∀∀ l : list val, deque_content γ l >>>
       steal q @ ↑N
-    <<< ∃∃ (l' : list val) (b : bool) (v : val),
+    <<< ∃∃ (l' : list val) (ov : val),
         deque_content γ l' ∗
-        ⌜l = if b then [v]++l' else l'⌝ ,
-      RET (#b, v) >>>.
+        match ov with
+        | NONEV => ⌜l = l'⌝
+        | SOMEV v => ⌜l = [v] ++ l'⌝
+        | _ => False
+        end,
+      RET ov >>>.
   Proof with autoall.
     iIntros "#Is" (Φ) "AU".
       iDestruct "Is" as (arr top bot) "[%Is Inv]". subst.
@@ -759,7 +741,7 @@ Section proof.
     (* no chance to steal *)
     case_bool_decide; wp_pures.
     { iMod "AU" as (l) "[Cont [_ Commit]]".
-      iMod ("Commit" $! l false #() with "[Cont]") as "Φ"...
+      iMod ("Commit" $! l NONEV with "[Cont]") as "Φ"...
       iApply "Φ"... }
     assert (t1 < b2) as Htb12. 1: destruct Pop2... clear H.
 
@@ -817,7 +799,8 @@ Section proof.
         iMod (ghost_var_update_2 (circ_slice l4 (S t4) b4)
           with "Cont Q") as "[Cont Q]"...
       iCombine "Q P" as "Abst".
-      iMod ("Commit" $! (circ_slice l4 (S t4) b4) true v with "[Cont]") as "Φ".
+      iMod ("Commit" $! (circ_slice l4 (S t4) b4) (SOMEV v)
+        with "[Cont]") as "Φ".
         { iSplit. 1: fr. simpl. erewrite <- circ_slice_shrink_left... }
       iModIntro. iSplitL "Phys Abst Mono".
       { iExists _,_,_, (S t4),b4,l4,Pop4. repeat iSplit...
@@ -832,7 +815,7 @@ Section proof.
       iMod "AU" as (l) "[Cont [_ Commit]]".
         iDestruct "Cont" as (γq' γpop' γm') "[%Enc' Cont]".
         encode_agree Enc.
-      iMod ("Commit" $! l false #() with "[Cont]") as "Φ".
+      iMod ("Commit" $! l NONEV with "[Cont]") as "Φ".
         { iSplit... fr. }
       iModIntro. iSplitL "Phys Abst Mono".
         { iExists _,_,_, t4,b4,l4,Pop4. repeat iSplit... fr. }
