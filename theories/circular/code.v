@@ -6,7 +6,7 @@ From iris.proofmode Require Import proofmode.
 From iris.heap_lang Require Import proofmode notation.
 From iris.prelude Require Import options.
 From chase_lev Require Import mono_list.
-From chase_lev.circular Require Import helpers.
+From chase_lev.circular Require Import helpers spec.
 
 Definition CAP_CONST : nat := 20.
 
@@ -33,9 +33,9 @@ This deque has the following physical state:
 and the following abstract state:
 - t = 21, b = 24, "not popping"
 - content = [20, 30, 40]
-- history = [#(), 1, 2, ..., 10, 11, ..., 99, 10, 20]
-    where 1 to 3 were erased from the array       ^
-                                                  t
+- history = [_, 1, 2, ..., 10, 11, ..., 99, 10, 20]
+    where 1 to 3 were erased from the array     ^
+                                                t
 Note on history:
 - history is the list of "determined elements", i.e.
   those that are definitely the last element pushed at
@@ -43,9 +43,9 @@ Note on history:
 - history includes indices from 0 to either t or t-1.
   If t = b, the element at t may be overwritten by push,
   so history goes up to t-1. Otherwise, it goes up to t.
-- history[0] is #() because t starts from 1 (because we
-  need to reason about t-1). However, this fact is not
-  necessary for proof.
+- history[0] does not correspond to any element in l
+  since t starts from 1 (because we need to reason about
+  t-1). As such, it can be any value.
 
 Invariants:
 - top |-> t
@@ -819,3 +819,16 @@ Section proof.
       wp_pures. iApply "Φ"...
   Qed.
 End proof.
+
+Program Definition atomic_deque `{!heapGS Σ, !dequeG Σ} :
+  spec.atomic_deque Σ :=
+  {| spec.new_deque_spec := new_deque_spec;
+     spec.push_spec := push_spec;
+     spec.pop_spec := pop_spec;
+     spec.steal_spec := steal_spec; |}.
+(* TODO we have to prove deque_content exclusive.
+  use excl auth instead of ghost var 1/2 *)
+Next Obligation. Admitted.
+
+Global Typeclasses Opaque deque_content is_deque.
+
