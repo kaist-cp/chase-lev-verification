@@ -8,8 +8,6 @@ From iris.prelude Require Import options.
 From chase_lev Require Import mono_list.
 From chase_lev.circular Require Import helpers spec.
 
-Definition CAP_CONST : nat := 20.
-
 (*
 We use a finite length circular list without resizing.
 The push function diverges on overflow.
@@ -59,33 +57,36 @@ Invariants:
 Section code.
   (* t and b start from 1 because we have to be able to decrement b *)
   Definition new_deque : val :=
-    λ: <>,
-      let: "array" := AllocN #CAP_CONST #0 in
-      ("array", ref #1, ref #1). (* array, top, bottom *)
+    λ: "sz",
+      let: "array" := AllocN "sz" #0 in
+      ("sz", "array", ref #1, ref #1). (* array, top, bottom *)
   
-  Definition arr : val := λ: "deque", Fst (Fst "deque").
+  Definition sz : val := λ: "deque", Fst (Fst (Fst "deque")).
+  Definition arr : val := λ: "deque", Snd (Fst (Fst "deque")).
   Definition top : val := λ: "deque", Snd (Fst "deque").
   Definition bot : val := λ: "deque", Snd "deque".
 
   Definition push : val :=
     rec: "push" "deque" "v" :=
+      let: "sz" := sz "deque" in
       let: "array" := arr "deque" in
       let: "b" := !(bot "deque") in
-      if: !(top "deque") + #CAP_CONST ≤ "b"
+      if: !(top "deque") + "sz" ≤ "b"
         then "push" "deque" "v"
       else
-      "array" +ₗ ("b" `rem` #CAP_CONST) <- "v" ;;
+      "array" +ₗ ("b" `rem` "sz") <- "v" ;;
       bot "deque" <- "b" + #1.
   
   Definition pop : val :=
     λ: "deque",
+      let: "sz" := sz "deque" in
       let: "array" := arr "deque" in
       let: "b" := !(bot "deque") - #1 in
       bot "deque" <- "b" ;;
       let: "t" := !(top "deque") in
       if: "b" < "t" then (* empty pop *)
         bot "deque" <- "t" ;; NONE
-      else let: "v" := !("array" +ₗ ("b" `rem` #CAP_CONST)) in
+      else let: "v" := !("array" +ₗ ("b" `rem` "sz")) in
       if: "t" < "b" then SOME "v" (* normal case *)
       else let: "ok" := CAS (top "deque") "t" ("t" + #1) in
       bot "deque" <- "t" + #1 ;;
@@ -97,11 +98,12 @@ Section code.
     the owner thread prematurely decremented b trying to pop. *)
   Definition steal : val :=
     λ: "deque",
+      let: "sz" := sz "deque" in
       let: "array" := arr "deque" in
       let: "t" := !(top "deque") in
       let: "b" := !(bot "deque") in
       if: "b" ≤ "t" then NONE (* no chance *)
-      else let: "v" := !("array" +ₗ ("t" `rem` #CAP_CONST)) in
+      else let: "v" := !("array" +ₗ ("t" `rem` "sz")) in
       if: CAS (top "deque") "t" ("t" + #1)
       then SOME "v" (* success *)
       else NONE. (* fail *)
@@ -273,10 +275,10 @@ Section proof.
   Context `{!heapGS Σ, !dequeG Σ} (N : namespace).
   Notation iProp := (iProp Σ).
 
-  Definition deque_inv (γ : gname) (arr top bot : loc) : iProp :=
+  Definition deque_inv (γ : gname) (sz : nat) (arr top bot : loc) : iProp :=
     ∃ (γq γpop γm : gname) (t b : nat) (l : list val) (Popping : bool),
       ⌜γ = encode (γq, γpop, γm)⌝ ∗
-      ⌜1 ≤ t ≤ b ∧ length l = CAP_CONST⌝ ∗
+      ⌜1 ≤ t ≤ b ∧ length l = sz ∧ sz > 0⌝ ∗
       (* physical data *)
       ( let bp := if Popping then b-1 else b in
         top ↦ #t ∗ bot ↦{#1/2} #bp ∗ arr ↦∗{#1/2} l
@@ -291,33 +293,34 @@ Section proof.
         ⌜t < b → hl !! t = mod_get l t⌝
       ).
 
-  Definition is_deque (γ : gname) (q : val) : iProp :=
+  Definition is_deque (γ : gname) (sz : nat) (q : val) : iProp :=
     ∃ (arr top bot : loc),
-      ⌜q = (#arr, #top, #bot)%V⌝ ∗
-      inv N (deque_inv γ arr top bot).
-  Global Instance is_deque_persistent γ q :
-    Persistent (is_deque γ q) := _.
+      ⌜q = (#sz, #arr, #top, #bot)%V⌝ ∗
+      inv N (deque_inv γ sz arr top bot).
+  Global Instance is_deque_persistent sz γ q :
+    Persistent (is_deque sz γ q) := _.
 
   Definition deque_content (γ : gname) (frag : list val) : iProp :=
     ∃ (γq γpop γm : gname),
       ⌜γ = encode (γq, γpop, γm)⌝ ∗
       own γq (◯E frag).
 
-  Definition own_deque (γ : gname) (q : val) : iProp :=
+  Definition own_deque (γ : gname) (sz : nat) (q : val) : iProp :=
     ∃ (γq γpop γm : gname) (arr top bot : loc) (b : nat) (l : list val),
       ⌜γ = encode (γq, γpop, γm)⌝ ∗
-      ⌜q = (#arr, #top, #bot)%V⌝ ∗
-      ⌜length l = CAP_CONST⌝ ∗
+      ⌜q = (#sz, #arr, #top, #bot)%V⌝ ∗
+      ⌜length l = sz⌝ ∗
       ghost_var γpop (1/2) false ∗
       bot ↦{#1/2} #b ∗ arr ↦∗{#1/2} l.
   
   Ltac extended_auto :=
-    eauto; unfold CAP_CONST in *; unfold helpers.CAP_CONST in *;
+    eauto;
     try by (
       repeat iNext; repeat iIntros; repeat intros;
       try case_decide; try iPureIntro;
       try rewrite lookup_lt_is_Some;
       try rewrite Qp.half_half;
+      try rewrite replicate_length;
       try lia; done
     ).
   Ltac fr :=
@@ -351,34 +354,36 @@ Section proof.
     - by iFrame.
   Qed.
 
-  Lemma new_deque_spec :
+  Lemma new_deque_spec sz :
+    0 < sz →
     {{{ True }}}
-      new_deque #()
+      new_deque #sz
     {{{ γ q, RET q;
-      is_deque γ q ∗ deque_content γ [] ∗ own_deque γ q
+      is_deque γ sz q ∗ deque_content γ [] ∗ own_deque γ sz q
     }}}.
   Proof with extended_auto.
-    iIntros (Φ) "_ HΦ".
+    iIntros (Hsz Φ) "_ HΦ".
     wp_lam. wp_alloc arr as "[arr↦1 arr↦2]"...
     wp_pures. wp_alloc b as "[b↦1 b↦2]". wp_alloc t as "t↦".
     iMod (own_alloc (●E [] ⋅ ◯E [])) as (γq) "[γq● γq◯]".
       1: apply excl_auth_valid.
     iMod (ghost_var_alloc false) as (γpop) "[γpop1 γpop2]".
     iMod (mono_deque_own_alloc #0) as (γm) "γm".
-    iMod (inv_alloc N _ (deque_inv (encode (γq, γpop, γm)) arr t b)
+    iMod (inv_alloc N _ (deque_inv (encode (γq, γpop, γm)) sz arr t b)
       with "[t↦ b↦1 arr↦1 γq● γpop1 γm]") as "Inv".
-    { iExists _,_,_, 1,1,(replicate 20 #0),false. fr. fr... }
+    { iExists _,_,_, 1,1,(replicate (Z.to_nat sz) #0),false.
+      fr. fr... }
     wp_pures. iModIntro. iApply "HΦ". fr.
-    iSplitL "γq◯". 1: fr. iExists _,_,_, _,_,_,1,_. fr.
+    iSplitL "γq◯". 1: fr. iExists _,_,_, _,_,_,1,_. fr...
   Qed.
 
-  Lemma push_spec γ q (v : val) :
-    is_deque γ q -∗
-    own_deque γ q -∗
+  Lemma push_spec γ sz q (v : val) :
+    is_deque γ sz q -∗
+    own_deque γ sz q -∗
     <<< ∀∀ l : list val, deque_content γ l >>>
       push q v @ ↑N
     <<< deque_content γ (l ++ [v]),
-      RET #(), own_deque γ q >>>.
+      RET #(), own_deque γ sz q >>>.
   Proof with extended_auto.
     iIntros "#Is Own" (Φ) "AU".
       iLöb as "IH".
@@ -386,7 +391,7 @@ Section proof.
         "(%Enc & -> & %HL & γ👑 & b👑 & arr👑)".
       iDestruct "Is" as (arr' top' bot') "[%Is Inv]".
       injection Is as [= <- <- <-].
-    wp_lam. unfold code.arr, code.top, code.bot. wp_pures.
+    wp_lam. unfold code.sz, code.arr, code.top, code.bot. wp_pures.
 
     (* load bot *)
     wp_load. wp_pures.
@@ -431,7 +436,7 @@ Section proof.
         iCombine "arr↦ arr👑" as "arr↦".
         iApply (wp_store_offset with "arr↦").
         { rewrite <- HL. apply mod_get_is_Some... }
-        replace (<[b `mod` 20:=v]> l) with (mod_set l b v).
+        replace (<[b `mod` sz:=v]> l) with (mod_set l b v).
           2: rewrite -HL...
         iNext. iIntros "[arr↦ arr👑]".
       iCombine "t↦ b↦ arr↦" as "Phys".
@@ -489,9 +494,9 @@ Section proof.
     iApply "Φ". fr. fr.
   Qed.
 
-  Lemma pop_spec γ q :
-    is_deque γ q -∗
-    own_deque γ q -∗
+  Lemma pop_spec γ sz q :
+    is_deque γ sz q -∗
+    own_deque γ sz q -∗
     <<< ∀∀ l : list val, deque_content γ l >>>
       pop q @ ↑N
     <<< ∃∃ (l' : list val) (ov : val),
@@ -501,14 +506,14 @@ Section proof.
         | SOMEV v => ⌜l = l' ++ [v]⌝
         | _ => False
         end,
-      RET ov, own_deque γ q >>>.
+      RET ov, own_deque γ sz q >>>.
   Proof with extended_auto.
     iIntros "#Is Own" (Φ) "AU".
       iDestruct "Own" as (γq γpop γm arr top bot b l)
         "(%Hγ & -> & %HL & γ👑 & b👑 & arr👑)".
       iDestruct "Is" as (arr' top' bot') "[%Is Inv]".
       injection Is as [= <- <- <-].
-    wp_lam. unfold code.arr, code.top, code.bot. wp_pures.
+    wp_lam. unfold code.sz, code.arr, code.top, code.bot. wp_pures.
 
     (* load bot *)
     wp_load. wp_pures.
@@ -718,8 +723,8 @@ Section proof.
       wp_pures. iApply "Φ". fr.
   Qed.
 
-  Lemma steal_spec γ q :
-    is_deque γ q -∗
+  Lemma steal_spec γ sz q :
+    is_deque γ sz q -∗
     <<< ∀∀ l : list val, deque_content γ l >>>
       steal q @ ↑N
     <<< ∃∃ (l' : list val) (ov : val),
@@ -733,7 +738,7 @@ Section proof.
   Proof with extended_auto.
     iIntros "#Is" (Φ) "AU".
       iDestruct "Is" as (arr top bot) "[%Is Inv]". subst.
-    wp_lam. unfold code.arr, code.top, code.bot. wp_pures.
+    wp_lam. unfold code.sz, code.arr, code.top, code.bot. wp_pures.
 
     (* load top *)
     wp_bind (! _)%E.
@@ -779,7 +784,7 @@ Section proof.
       destruct (mod_get_is_Some l3 t1) as [v Hv]...
       iDestruct "Phys" as "(t↦ & b↦ & arr↦)".
         iApply (wp_load_offset with "arr↦").
-        1: { destruct Bound3. rewrite -e... }
+        1: { destruct Bound3 as [_ [e _]]. rewrite -e... }
         iNext. iIntros "arr↦".
       iCombine "t↦ b↦ arr↦" as "Phys".
     iModIntro. iSplitL "Phys Abst Mono".

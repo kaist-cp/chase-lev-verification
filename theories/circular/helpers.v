@@ -2,8 +2,6 @@ From stdpp Require Import list.
 From iris.proofmode Require Import proofmode.
 From iris.heap_lang Require Import proofmode notation.
 
-Definition CAP_CONST : nat := 20.
-
 Ltac encode_agree Hγ :=
   match type of Hγ with
   | ?γ = ?e =>
