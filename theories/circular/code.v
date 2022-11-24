@@ -1,4 +1,4 @@
-From iris.algebra Require Import excl auth list.
+From iris.algebra Require Import excl auth list excl_auth.
 From iris.bi.lib Require Import fractional.
 From iris.base_logic.lib Require Import invariants ghost_var mono_nat.
 From chase_lev Require Import atomic.
@@ -66,13 +66,14 @@ Section code.
   Definition arr : val := λ: "deque", Fst (Fst "deque").
   Definition top : val := λ: "deque", Snd (Fst "deque").
   Definition bot : val := λ: "deque", Snd "deque".
-  Definition loop : val := (rec: "loop" "x" := "loop" "x").
 
   Definition push : val :=
-    λ: "deque" "v",
+    rec: "push" "deque" "v" :=
       let: "array" := arr "deque" in
       let: "b" := !(bot "deque") in
-      if: !(top "deque") + #CAP_CONST ≤ "b" then loop #() else
+      if: !(top "deque") + #CAP_CONST ≤ "b"
+        then "push" "deque" "v"
+      else
       "array" +ₗ ("b" `rem` #CAP_CONST) <- "v" ;;
       bot "deque" <- "b" + #1.
   
@@ -109,13 +110,13 @@ End code.
 (** The CMRA we need. *)
 
 Class dequeG Σ := DequeG {
-    deque_tokG :> ghost_varG Σ (list val);
+    deque_tokG :> inG Σ (excl_authR $ listO valO);
     deque_popG :> ghost_varG Σ bool;
     mono_listG :> mono_listG val Σ;
     mono_natG :> mono_natG Σ
   }.
 Definition dequeΣ : gFunctors :=
-  #[ghost_varΣ (list val);
+  #[GFunctor (excl_authR $ listO valO);
     ghost_varΣ bool;
     mono_listΣ val;
     mono_natΣ
@@ -281,7 +282,7 @@ Section proof.
         top ↦ #t ∗ bot ↦{#1/2} #bp ∗ arr ↦∗{#1/2} l
       ) ∗
       (* logical data *)
-      ( ghost_var γq (1/2) (circ_slice l t b) ∗
+      ( own γq (●E (circ_slice l t b)) ∗
         ghost_var γpop (1/2) Popping
       ) ∗
       (* history of determined elements *)
@@ -300,7 +301,7 @@ Section proof.
   Definition deque_content (γ : gname) (frag : list val) : iProp :=
     ∃ (γq γpop γm : gname),
       ⌜γ = encode (γq, γpop, γm)⌝ ∗
-      ghost_var γq (1/2) frag.
+      own γq (◯E frag).
 
   Definition own_deque (γ : gname) (q : val) : iProp :=
     ∃ (γq γpop γm : gname) (arr top bot : loc) (b : nat) (l : list val),
@@ -310,13 +311,6 @@ Section proof.
       ghost_var γpop (1/2) false ∗
       bot ↦{#1/2} #b ∗ arr ↦∗{#1/2} l.
   
-  Lemma loop_spec v :
-    {{{ True }}} loop #v {{{ RET #(); False }}}.
-  Proof.
-    iIntros (Φ) "_ HΦ". wp_rec. iLöb as "IH". wp_rec.
-    by iApply "IH".
-  Qed.
-
   Ltac extended_auto :=
     eauto; unfold CAP_CONST in *; unfold helpers.CAP_CONST in *;
     try by (
@@ -331,6 +325,32 @@ Section proof.
     try iFrame "arr↦"; try iFrame "arr↦1"; try iFrame "arr↦2"; 
     iFrame; eauto.
 
+  Lemma deque_content_exclusive γ frag1 frag2 :
+    deque_content γ frag1 -∗ deque_content γ frag2 -∗ False.
+  Proof.
+    iIntros "C1 C2".
+      iDestruct "C1" as (γq γpop γm) "[%Enc C1]".
+      iDestruct "C2" as (γq' γpop' γm') "[%Enc' C2]".
+      encode_agree Enc.
+    by iDestruct (own_valid_2 with "C1 C2") as %?%auth_frag_op_valid_1.
+  Qed.
+
+  Lemma own_ea_agree γ a b :
+    own γ (●E a) -∗ own γ (◯E b) -∗ ⌜a = b⌝.
+  Proof.
+    iIntros "● ◯".
+    by iDestruct (own_valid_2 with "● ◯") as %?%excl_auth_agree_L.
+  Qed.
+
+  Lemma own_ea_update a' γ a b :
+    own γ (●E a) -∗ own γ (◯E b) ==∗ own γ (●E a') ∗ own γ (◯E a').
+  Proof.
+    iIntros "● ◯".
+    iMod (own_update_2 γ _ _ (●E a' ⋅ ◯E a') with "● ◯") as "[● ◯]".
+    - apply excl_auth_update.
+    - by iFrame.
+  Qed.
+
   Lemma new_deque_spec :
     {{{ True }}}
       new_deque #()
@@ -341,14 +361,15 @@ Section proof.
     iIntros (Φ) "_ HΦ".
     wp_lam. wp_alloc arr as "[arr↦1 arr↦2]"...
     wp_pures. wp_alloc b as "[b↦1 b↦2]". wp_alloc t as "t↦".
-    iMod (ghost_var_alloc []) as (γq) "[γq1 γq2]".
+    iMod (own_alloc (●E [] ⋅ ◯E [])) as (γq) "[γq● γq◯]".
+      1: apply excl_auth_valid.
     iMod (ghost_var_alloc false) as (γpop) "[γpop1 γpop2]".
     iMod (mono_deque_own_alloc #0) as (γm) "γm".
     iMod (inv_alloc N _ (deque_inv (encode (γq, γpop, γm)) arr t b)
-      with "[t↦ b↦1 arr↦1 γq1 γpop1 γm]") as "Inv".
+      with "[t↦ b↦1 arr↦1 γq● γpop1 γm]") as "Inv".
     { iExists _,_,_, 1,1,(replicate 20 #0),false. fr. fr... }
     wp_pures. iModIntro. iApply "HΦ". fr.
-    iSplitL "γq2". 1: fr. iExists _,_,_, _,_,_,1,_. fr.
+    iSplitL "γq◯". 1: fr. iExists _,_,_, _,_,_,1,_. fr.
   Qed.
 
   Lemma push_spec γ q (v : val) :
@@ -360,6 +381,7 @@ Section proof.
       RET #(), own_deque γ q >>>.
   Proof with extended_auto.
     iIntros "#Is Own" (Φ) "AU".
+      iLöb as "IH".
       iDestruct "Own" as (γq γpop γm arr top bot b l)
         "(%Enc & -> & %HL & γ👑 & b👑 & arr👑)".
       iDestruct "Is" as (arr' top' bot') "[%Is Inv]".
@@ -389,7 +411,9 @@ Section proof.
     wp_pures.
 
     (* diverge *)
-    case_bool_decide as HbC. { wp_pures. iApply loop_spec... }
+    case_bool_decide as HbC.
+      { wp_pures. iApply ("IH" with "[γ👑 b👑 arr👑]")... fr. }
+    iClear "IH".
     wp_pures. rewrite rem_mod_eq...
 
     (* store value *)
@@ -431,8 +455,8 @@ Section proof.
         iDestruct "Cont" as (γq' γpop' γm') "[%Enc' Cont]".
         encode_agree Enc.
       iDestruct "Abst" as "[Q P]".
-        iDestruct (ghost_var_agree with "Q Cont") as "%". subst q.
-        iMod (ghost_var_update_2 (circ_slice l2 t2 (S b))
+        iDestruct (own_ea_agree with "Q Cont") as "%". subst q.
+        iMod (own_ea_update (circ_slice l2 t2 (S b))
           with "Q Cont") as "[Q Cont]"...
         iDestruct (ghost_var_agree with "γ👑 P") as "%". subst Pop2.
       iCombine "Q P" as "Abst".
@@ -535,9 +559,9 @@ Section proof.
       iDestruct "Phys" as "(t↦ & b↦ & arr↦)". wp_load.
       iCombine "t↦ b↦ arr↦" as "Phys".
       iDestruct "Abst" as "[Q P]".
-        iDestruct (ghost_var_agree with "Cont Q") as "%". subst l'.
-        iMod (ghost_var_update_2 (circ_slice l t2 (b-1)) with "Cont Q")
-          as "[Cont Q]"...
+        iDestruct (own_ea_agree with "Q Cont") as "%". subst l'.
+        iMod (own_ea_update (circ_slice l t2 (b-1)) with "Q Cont")
+          as "[Q Cont]"...
         iMod (ghost_var_update_2 false with "γ👑 P") as "[γ👑 P]"...
       iCombine "Q P" as "Abst".
       iDestruct "Mono" as (hl1) "[Mono %HistPref1]".
@@ -625,9 +649,9 @@ Section proof.
         iDestruct "Cont" as (γq' γpop' γm') "[%Enc Cont]".
         encode_agree Enc.
       iDestruct "Abst" as "[Q P]".
-        iDestruct (ghost_var_agree with "Cont Q") as "%". subst l'.
+        iDestruct (own_ea_agree with "Q Cont") as "%". subst l'.
         erewrite circ_slice_shrink_left... rewrite circ_slice_to_nil...
-        iMod (ghost_var_update_2 [] with "Cont Q") as "[Cont Q]"...
+        iMod (own_ea_update [] with "Q Cont") as "[Q Cont]"...
       iCombine "Q P" as "Abst".
       iMod ("Commit" $! [] (SOMEV v) with "[Cont]") as "Φ". 1: fr.
       iDestruct "Mono" as (hl1) "[Mono %HistPref1]".
@@ -794,9 +818,9 @@ Section proof.
         iDestruct "Cont" as (γq' γpop' γm') "[%Enc' Cont]".
         encode_agree Enc.
       iDestruct "Abst" as "[Q P]".
-        iDestruct (ghost_var_agree with "Cont Q") as "%". subst l'.
-        iMod (ghost_var_update_2 (circ_slice l4 (S t4) b4)
-          with "Cont Q") as "[Cont Q]"...
+        iDestruct (own_ea_agree with "Q Cont") as "%". subst l'.
+        iMod (own_ea_update (circ_slice l4 (S t4) b4)
+          with "Q Cont") as "[Q Cont]"...
       iCombine "Q P" as "Abst".
       iMod ("Commit" $! (circ_slice l4 (S t4) b4) (SOMEV v)
         with "[Cont]") as "Φ".
@@ -825,10 +849,8 @@ Program Definition atomic_deque `{!heapGS Σ, !dequeG Σ} :
   {| spec.new_deque_spec := new_deque_spec;
      spec.push_spec := push_spec;
      spec.pop_spec := pop_spec;
-     spec.steal_spec := steal_spec; |}.
-(* TODO we have to prove deque_content exclusive.
-  use excl auth instead of ghost var 1/2 *)
-Next Obligation. Admitted.
+     spec.steal_spec := steal_spec;
+     spec.deque_content_exclusive := deque_content_exclusive |}.
 
 Global Typeclasses Opaque deque_content is_deque.
 
