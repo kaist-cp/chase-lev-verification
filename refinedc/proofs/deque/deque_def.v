@@ -10,16 +10,16 @@ Set Default Proof Using "Type".
 (** Ghost state for the deque *)
 
 Class dequeG Σ := DequeG {
-    deque_tokG :> inG Σ (excl_authR $ listO natO);
+    deque_tokG :> inG Σ (excl_authR $ listO ZO);
     deque_popG :> ghost_varG Σ bool;
-    mono_listG :> mono_listG nat Σ;
+    mono_listG :> mono_listG Z Σ;
     mono_natG :> mono_natG Σ
   }.
 
 Definition dequeΣ : gFunctors :=
-  #[GFunctor (excl_authR $ listO natO);
+  #[GFunctor (excl_authR $ listO ZO);
     ghost_varΣ bool;
-    mono_listΣ nat;
+    mono_listΣ Z;
     mono_natΣ
   ].
 
@@ -31,14 +31,14 @@ Section monotone_ghost.
   Context `{!heapGS Σ, !dequeG Σ} (N : namespace).
   Notation iProp := (iProp Σ).
 
-  Definition mono_deque_auth_own (γm : gname) (hl : list nat) (t b : nat) : iProp :=
+  Definition mono_deque_auth_own (γm : gname) (hl : list Z) (t b : nat) : iProp :=
     ∃ (γl γt : gname),
     ⌜γm = encode (γl, γt)⌝ ∗
     ⌜(length hl = t ∧ t = b) ∨ (length hl = S t ∧ t < b)⌝ ∗
     mono_list_auth_own γl 1 hl ∗
     mono_nat_auth_own γt 1 t.
 
-  Definition mono_deque_lb_own (γm : gname) (hl : list nat) (t b : nat) : iProp :=
+  Definition mono_deque_lb_own (γm : gname) (hl : list Z) (t b : nat) : iProp :=
     ∃ (γl γt : gname),
     ⌜γm = encode (γl, γt)⌝ ∗
     ⌜(length hl = t ∧ t = b) ∨ (length hl = S t ∧ t < b)⌝ ∗
@@ -174,36 +174,36 @@ End monotone_ghost.
 
 
 Section type.
-  Context `{!typeG Σ} `{!dequeG Σ} (N : namespace).
+  Context `{!typeG Σ} `{!dequeG Σ}.
   Notation iProp := (iProp Σ).
 
-  Global Instance inv_own_constraint (P : iProp):
+  Global Instance inv_own_constraint (N : namespace) (P : iProp):
     OwnConstraint (λ β, match β return _ with Own => P | Shr => inv N P end).
   Proof.
     constructor; first apply _.
     iIntros (??) "H". by iMod (inv_alloc with "H").
   Qed.
 
-  Definition with_invariant (ty : type) (P : iProp) : type :=
+  Definition with_invariant (ty : type) (N : namespace) (P : iProp) : type :=
     own_constrained (λ β, match β return _ with Own => P | Shr => inv N P end) ty.
 
   Definition deque_inv (g : gname) (arr sz top bot : loc) : iProp :=
-    ∃ (γq γpop γm : gname) (n t b : nat) (l : list nat) (Popping : bool),
+    ∃ (γq γpop γm : gname) (n t b : nat) (l : list Z) (Popping : bool),
       ⌜g = encode (γq, γpop, γm)⌝ ∗
       ⌜1 ≤ t ≤ b ∧ length l = n ∧ n > 0⌝ ∗
       (* physical data *)
       ( let bp := if Popping then b-1 else b in
         (* arr ↦∗{#1/2} l *)
         sz ◁ₗ n @ int i32 ∗
-        top ◁ₗ t @ int i32
-        (* bot ↦{#1/2} #bp *)
+        top ◁ₗ t @ int i32 ∗
+        (*bot ◁ₗ atomic_int i32 (λ n, own γ (●E bp))%I*)
       ) ∗
       (* logical data *)
       ( own γq (●E (circ_slice l t b)) ∗
         ghost_var γpop (1/2) Popping
       ) ∗
       (* history of determined elements *)
-      ( ∃ (hl : list nat),
+      ( ∃ (hl : list Z),
         mono_deque_auth_own γm hl t b ∗
         ⌜t < b → hl !! t = mod_get l t⌝
       ).
@@ -213,11 +213,26 @@ Section type.
   Proof. rewrite /hyp_spinlock_t_invariant /ty_own /=. apply _. Qed.
 *)
 
-  Definition deque_t (g : gname) : type :=
+  Definition own_deque (γ : gname) (n : nat) (q : loc) : iProp :=
+    ∃ (γq γpop γm : gname) (arr top bot : loc) (b : nat) (l : list Z),
+      ⌜γ = encode (γq, γpop, γm)⌝ ∗
+      (*⌜q = (#n, #arr, #top, #bot)%V⌝ ∗*)
+      ⌜length l = n⌝ ∗
+      ghost_var γpop (1/2) false ∗
+      (*bot ↦{#1/2} #b ∗ arr ↦∗{#1/2} l.*) True.
+  
+
+  Definition deque_content (γ : gname) (frag : list Z) : iProp :=
+    ∃ (γq γpop γm : gname),
+      ⌜γ = encode (γq, γpop, γm)⌝ ∗
+      own γq (◯E frag).
+
+  Definition dequeN : namespace := nroot.
+  Definition deque (g : gname) : type :=
     tyexists (λ arr, tyexists (λ sz, tyexists (λ top, tyexists (λ bot,
       with_invariant (
         struct struct_deque [ place arr ; place sz ; place top ; place bot ]
-      ) (deque_inv g sz arr top bot)
+      ) dequeN (deque_inv g sz arr top bot)
     )))).
 
 End type.
