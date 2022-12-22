@@ -187,16 +187,22 @@ Section type.
   Definition with_invariant (ty : type) (N : namespace) (P : iProp) : type :=
     own_constrained (λ β, match β return _ with Own => P | Shr => inv N P end) ty.
 
+  Fixpoint array_half (p : loc) (l : list Z) : iProp :=
+    match l with
+    | [] => True%I
+    | v::l' => p ↦{1/2} (i2v v i32) ∗ array_half (p +ₗ 1) l'
+    end.
+
   Definition deque_inv (g : gname) (arr sz top bot : loc) : iProp :=
     ∃ (γq γpop γm : gname) (n t b : nat) (l : list Z) (Popping : bool),
       ⌜g = encode (γq, γpop, γm)⌝ ∗
       ⌜1 ≤ t ≤ b ∧ length l = n ∧ n > 0⌝ ∗
       (* physical data *)
       ( let bp := if Popping then b-1 else b in
-        (* arr ↦∗{#1/2} l *)
+        array_half arr l ∗
         sz ◁ₗ n @ int i32 ∗
         top ◁ₗ t @ int i32 ∗
-        (*bot ◁ₗ atomic_int i32 (λ n, own γ (●E bp))%I*)
+        bot ↦{1/2} (i2v (Z.of_nat bp) i32)
       ) ∗
       (* logical data *)
       ( own γq (●E (circ_slice l t b)) ∗
@@ -219,7 +225,8 @@ Section type.
       (*⌜q = (#n, #arr, #top, #bot)%V⌝ ∗*)
       ⌜length l = n⌝ ∗
       ghost_var γpop (1/2) false ∗
-      (*bot ↦{#1/2} #b ∗ arr ↦∗{#1/2} l.*) True.
+      array_half arr l ∗
+      bot ↦{1/2} (i2v (Z.of_nat b) i32).
   
 
   Definition deque_content (γ : gname) (frag : list Z) : iProp :=
