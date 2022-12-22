@@ -10,7 +10,6 @@ deque {
     int size;
     _Atomic int top;
     int bot;
-    _Atomic int cnt;
 } *deque_t;
 
 //[[rc::manual_proof("refinedc.project.ex.counter:counter_proof, type_weak_try_inc")]]

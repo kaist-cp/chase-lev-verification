@@ -220,15 +220,14 @@ Section type.
 *)
 
   Definition own_deque (γ : gname) (n : nat) (q : loc) : iProp :=
-    ∃ (γq γpop γm : gname) (arr top bot : loc) (b : nat) (l : list Z),
+    ∃ (γq γpop γm : gname) (sz arr top bot : loc) (b : nat) (l : list Z),
       ⌜γ = encode (γq, γpop, γm)⌝ ∗
-      (*⌜q = (#n, #arr, #top, #bot)%V⌝ ∗*)
+      q ◁ₗ{Shr} struct struct_deque [ place arr ; place sz ; place top ; place bot ] ∗
       ⌜length l = n⌝ ∗
       ghost_var γpop (1/2) false ∗
       array_half arr l ∗
       bot ↦{1/2} (i2v (Z.of_nat b) i32).
   
-
   Definition deque_content (γ : gname) (frag : list Z) : iProp :=
     ∃ (γq γpop γm : gname),
       ⌜γ = encode (γq, γpop, γm)⌝ ∗
