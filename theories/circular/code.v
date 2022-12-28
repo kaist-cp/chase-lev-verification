@@ -56,16 +56,16 @@ Section code.
   Definition new_deque : val :=
     λ: "sz",
       let: "array" := AllocN "sz" #0 in
-      ("sz", "array", ref #1, ref #1). (* size, array, top, bottom *)
+      ("array", ref "sz", ref #1, ref #1). (* size, array, top, bottom *)
   
-  Definition sz : val := λ: "deque", Fst (Fst (Fst "deque")).
-  Definition arr : val := λ: "deque", Snd (Fst (Fst "deque")).
+  Definition arr : val := λ: "deque", Fst (Fst (Fst "deque")).
+  Definition sz : val := λ: "deque", Snd (Fst (Fst "deque")).
   Definition top : val := λ: "deque", Snd (Fst "deque").
   Definition bot : val := λ: "deque", Snd "deque".
 
   Definition push : val :=
     rec: "push" "deque" "v" :=
-      let: "sz" := sz "deque" in
+      let: "sz" := !(sz "deque") in
       let: "array" := arr "deque" in
       let: "b" := !(bot "deque") in
       if: !(top "deque") + "sz" ≤ "b"
@@ -76,7 +76,7 @@ Section code.
   
   Definition pop : val :=
     λ: "deque",
-      let: "sz" := sz "deque" in
+      let: "sz" := !(sz "deque") in
       let: "array" := arr "deque" in
       let: "b" := !(bot "deque") - #1 in
       bot "deque" <- "b" ;;
@@ -95,7 +95,7 @@ Section code.
     the owner thread decremented b trying to pop. *)
   Definition steal : val :=
     λ: "deque",
-      let: "sz" := sz "deque" in
+      let: "sz" := !(sz "deque") in
       let: "array" := arr "deque" in
       let: "t" := !(top "deque") in
       let: "b" := !(bot "deque") in
@@ -275,13 +275,14 @@ Section proof.
   Context `{!heapGS Σ, !dequeG Σ} (N : namespace).
   Notation iProp := (iProp Σ).
 
-  Definition deque_inv (γ : gname) (sz : nat) (arr top bot : loc) : iProp :=
+  Definition deque_inv (γ : gname) (arr sz top bot : loc) : iProp :=
     ∃ (γq γpop γm : gname) (t b : nat) (l : list val) (Popping : bool),
       ⌜γ = encode (γq, γpop, γm)⌝ ∗
-      ⌜1 ≤ t ≤ b ∧ length l = sz ∧ sz > 0⌝ ∗
+      ⌜1 ≤ t ≤ b ∧ length l > 0⌝ ∗
       (* physical data *)
       ( let bp := if Popping then b-1 else b in
-        top ↦ #t ∗ bot ↦{#1/2} #bp ∗ arr ↦∗{#1/2} l
+        arr ↦∗{#1/2} l ∗ sz ↦{#1/2} #(length l) ∗
+        top ↦ #t ∗ bot ↦{#1/2} #bp
       ) ∗
       (* logical data *)
       ( own γq (●E (circ_slice l t b)) ∗
@@ -293,12 +294,12 @@ Section proof.
         ⌜t < b → hl !! t = mod_get l t⌝
       ).
 
-  Definition is_deque (γ : gname) (sz : nat) (q : val) : iProp :=
-    ∃ (arr top bot : loc),
-      ⌜q = (#sz, #arr, #top, #bot)%V⌝ ∗
-      inv N (deque_inv γ sz arr top bot).
-  Global Instance is_deque_persistent sz γ q :
-    Persistent (is_deque sz γ q) := _.
+  Definition is_deque (γ : gname) (q : val) : iProp :=
+    ∃ (sz arr top bot : loc),
+      ⌜q = (#arr, #sz, #top, #bot)%V⌝ ∗
+      inv N (deque_inv γ arr sz top bot).
+  Global Instance is_deque_persistent γ q :
+    Persistent (is_deque γ q) := _.
 
   Definition deque_content (γ : gname) (frag : list val) : iProp :=
     ∃ (γq γpop γm : gname),
@@ -306,21 +307,23 @@ Section proof.
       own γq (◯E frag).
 
   (* owner of the deque who can call push and pop *)
-  Definition own_deque (γ : gname) (sz : nat) (q : val) : iProp :=
-    ∃ (γq γpop γm : gname) (arr top bot : loc) (b : nat) (l : list val),
+  Definition own_deque (γ : gname) (q : val) : iProp :=
+    ∃ (γq γpop γm : gname) (arr sz top bot : loc) (b : nat) (l : list val),
       ⌜γ = encode (γq, γpop, γm)⌝ ∗
-      ⌜q = (#sz, #arr, #top, #bot)%V⌝ ∗
-      ⌜length l = sz⌝ ∗
+      ⌜q = (#arr, #sz, #top, #bot)%V⌝ ∗
       ghost_var γpop (1/2) false ∗
-      bot ↦{#1/2} #b ∗ arr ↦∗{#1/2} l.
+      sz ↦{#1/2} #(length l) ∗ arr ↦∗{#1/2} l ∗
+      bot ↦{#1/2} #b.
   
   Ltac extended_auto :=
-    eauto; try by (
+    eauto;
+    try rewrite Nat2Z.id;
+    try rewrite replicate_length;
+    try rewrite Qp.half_half;
+    try by (
       repeat iNext; repeat iIntros; repeat intros;
       try case_decide; try iPureIntro;
       try rewrite lookup_lt_is_Some;
-      try rewrite Qp.half_half;
-      try rewrite replicate_length;
       try lia; done
     ).
   Ltac fr :=
@@ -354,46 +357,51 @@ Section proof.
     - by iFrame.
   Qed.
 
-  Lemma new_deque_spec sz :
-    0 < sz →
+  Lemma new_deque_spec n :
+    0 < n →
     {{{ True }}}
-      new_deque #sz
+      new_deque #n
     {{{ γ q, RET q;
-      is_deque γ sz q ∗ deque_content γ [] ∗ own_deque γ sz q
+      is_deque γ q ∗ deque_content γ [] ∗ own_deque γ q
     }}}.
   Proof with extended_auto.
-    iIntros (Hsz Φ) "_ HΦ".
-    wp_lam. wp_alloc arr as "[arr↦1 arr↦2]"...
-    wp_pures. wp_alloc b as "[b↦1 b↦2]". wp_alloc t as "t↦".
+    iIntros (Hsz Φ) "_ HΦ". wp_lam.
+    (* allocate *)
+    wp_alloc arr as "[arr↦1 arr↦2]"... wp_pures.
+    wp_alloc b as "[b↦1 b↦2]". wp_alloc t as "t↦".
+    wp_alloc sz as "[sz↦1 sz↦2]".
+    (* make resources *)
     iMod (own_alloc (●E [] ⋅ ◯E [])) as (γq) "[γq● γq◯]".
       1: apply excl_auth_valid.
     iMod (ghost_var_alloc false) as (γpop) "[γpop1 γpop2]".
     iMod (mono_deque_own_alloc #0) as (γm) "γm".
-    iMod (inv_alloc N _ (deque_inv (encode (γq, γpop, γm)) sz arr t b)
-      with "[t↦ b↦1 arr↦1 γq● γpop1 γm]") as "Inv".
-    { iExists _,_,_, 1,1,(replicate (Z.to_nat sz) #0),false.
-      iFrame. fr... }
+    iMod (inv_alloc N _ (deque_inv (encode (γq, γpop, γm)) arr sz t b)
+      with "[arr↦1 sz↦1 t↦ b↦1 γq● γpop1 γm]") as "Inv".
+    { iExists _,_,_, 1,1,(replicate (Z.to_nat n) #0),false.
+      iFrame. fr... fr... }
     wp_pures. iModIntro. iApply "HΦ". fr.
-    iSplitL "γq◯". 1: fr. iExists _,_,_, _,_,_,1,_. fr...
+    iSplitL "γq◯". 1: fr. iExists _,_,_, _,_,_,_,1. fr... fr.
   Qed.
 
-  Lemma push_spec γ sz q (v : val) :
-    is_deque γ sz q -∗
-    own_deque γ sz q -∗
+  Lemma push_spec γ q (v : val) :
+    is_deque γ q -∗
+    own_deque γ q -∗
     <<< ∀∀ l : list val, deque_content γ l >>>
       push q v @ ↑N
     <<< deque_content γ (l ++ [v]),
-      RET #(), own_deque γ sz q >>>.
+      RET #(), own_deque γ q >>>.
   Proof with extended_auto.
     iIntros "#Inv Own" (Φ) "AU".
       iLöb as "IH".
-      iDestruct "Own" as (γq γpop γm arr top bot b l)
-        "(%Enc & -> & %HL & γOwn & bOwn & arrOwn)".
-      iDestruct "Inv" as (arr' top' bot') "[%Q Inv]".
-      injection Q as [= <- <- <-].
+      unfold own_deque.
+      iDestruct "Own" as (γq γpop γm arr sz top bot b l)
+        "(%Enc & -> & γOwn & szOwn & arrOwn & bOwn)".
+      iDestruct "Inv" as (arr' sz' top' bot') "[%Q Inv]".
+      injection Q as [= <- <- <- <-].
     wp_lam. unfold code.sz, code.arr, code.top, code.bot. wp_pures.
 
-    (* load bot *)
+    (* load sz & bot *)
+    wp_load. wp_pures.
     wp_load. wp_pures.
 
     (* load top *)
@@ -404,11 +412,14 @@ Section proof.
       iDestruct "Abst" as "[● P]".
         iDestruct (ghost_var_agree with "γOwn P") as "%". subst Pop1.
       iCombine "● P" as "Abst".
-      iDestruct "Phys" as "(t↦ & b↦ & arr↦)". wp_load.
+      iDestruct "Phys" as "(arr↦ & sz↦ & t↦ & b↦)". wp_load.
+        iDestruct (mapsto_agree with "sz↦ szOwn") as "%Hsz".
+          injection Hsz as [=Hsz]. apply Nat2Z.inj in Hsz.
         iDestruct (mapsto_agree with "b↦ bOwn") as "%Hb".
           injection Hb as [=Hb]. apply Nat2Z.inj in Hb. subst b1.
         iDestruct (array_agree with "arr↦ arrOwn") as "%"... subst l1.
-      iCombine "t↦ b↦ arr↦" as "Phys".
+        clear Hsz.
+      iCombine "arr↦ sz↦ t↦ b↦" as "Phys".
       iDestruct "Mono" as (hl) "[Mono %HistPref1]".
         iDestruct (mono_deque_get_lb with "Mono") as "#Mlb1".
     iModIntro. iSplitL "Phys Abst Mono".
@@ -417,7 +428,8 @@ Section proof.
 
     (* recurse *)
     case_bool_decide as HbC.
-      { wp_pures. iApply ("IH" with "[γOwn bOwn arrOwn]")... fr. }
+      { wp_pures. iApply ("IH" with "[γOwn szOwn arrOwn bOwn]")...
+        iExists _,_,_, _,_,_,_,_. iExists l. fr. }
     iClear "IH".
     wp_pures. rewrite rem_mod_eq...
 
@@ -429,24 +441,26 @@ Section proof.
       iDestruct "Abst" as "[● P]".
         iDestruct (ghost_var_agree with "γOwn P") as "%". subst Pop2.
       iCombine "● P" as "Abst".
-      iDestruct "Phys" as "(t↦ & b↦ & arr↦)".
+      iDestruct "Phys" as "(arr↦ & sz↦ & t↦ & b↦)".
+        iDestruct (mapsto_agree with "sz↦ szOwn") as "%Hsz".
+          injection Hsz as [=Hsz]. apply Nat2Z.inj in Hsz.
         iDestruct (mapsto_agree with "b↦ bOwn") as "%".
           injection H as [=]. apply Nat2Z.inj in H. subst b2.
         iDestruct (array_agree with "arr↦ arrOwn") as "%"... subst l2.
+        clear Hsz.
         iCombine "arr↦ arrOwn" as "arr↦".
-        iApply (wp_store_offset with "arr↦").
-        { rewrite -HL. apply mod_get_is_Some... }
-        replace (<[b `mod` sz:=v]> l) with (mod_set l b v). 2: rewrite -HL...
+        iApply (wp_store_offset with "arr↦"). { apply mod_get_is_Some... }
+        replace (<[b `mod` length l:=v]> l) with (mod_set l b v)...
         iNext. iIntros "[arr↦ arrOwn]".
-      iCombine "t↦ b↦ arr↦" as "Phys".
+      iCombine "arr↦ sz↦ t↦ b↦" as "Phys".
       iDestruct "Mono" as (hl1) "[Mono %HistPref2]".
         iDestruct (mono_deque_auth_history with "Mono") as "%Hist2".
       iDestruct (mono_deque_auth_lb_top with "Mono Mlb1") as "%Ht12".
       iModIntro. iSplitL "Phys Abst Mono".
       { iExists _,_,_, t2,b,(mod_set l b v),false.
         rewrite insert_length. fr.
-        rewrite circ_slice_update_right...
-        iFrame. fr. iIntros "%". rewrite mod_set_get_ne...
+        rewrite circ_slice_update_right... fr. fr.
+        iPureIntro; intros. rewrite mod_set_get_ne... 
         assert (t2 `mod` length l ≠ b `mod` length l)...
         apply close_mod_neq... }
     wp_pures.
@@ -464,14 +478,16 @@ Section proof.
         iMod (own_ea_update (circ_slice l3 t3 (S b)) with "● ◯") as "[● ◯]".
         iDestruct (ghost_var_agree with "γOwn P") as "%". subst Pop3.
       iCombine "● P" as "Abst".
-      iDestruct "Phys" as "(t↦ & b↦ & arr↦)".
+      iDestruct "Phys" as "(arr↦ & sz↦ & t↦ & b↦)".
+        iDestruct (mapsto_agree with "sz↦ szOwn") as "%Hsz".
+          injection Hsz as [=Hsz]. apply Nat2Z.inj in Hsz.
         iDestruct (mapsto_agree with "b↦ bOwn") as "%Hb".
           injection Hb as [=Hb]. apply Nat2Z.inj in Hb. subst b3.
         iDestruct (array_agree with "arr↦ arrOwn") as "%".
           1: rewrite insert_length... subst l3.
         iCombine "b↦ bOwn" as "b↦". wp_store.
         iDestruct "b↦" as "[b↦ bOwn]".
-      iCombine "t↦ b↦ arr↦" as "Phys".
+      iCombine "arr↦ sz↦ t↦ b↦" as "Phys".
       iDestruct "Mono" as (hl3) "[Mono %HistPref3]".
         iDestruct (mono_deque_auth_history with "Mono") as "%Hist3".
         iMod (mono_deque_push _
@@ -489,12 +505,13 @@ Section proof.
         rewrite lookup_app_r... rewrite mod_set_get...
         rewrite Hist3. replace (b-b) with 0...
       - iPureIntro; intros. apply HistPref3... }
-    iApply "Φ". fr. fr.
+    iApply "Φ". iExists _,_,_, _,_,_,_,_. iExists (mod_set l b v).
+    fr. rewrite Hsz...
   Qed.
 
-  Lemma pop_spec γ sz q :
-    is_deque γ sz q -∗
-    own_deque γ sz q -∗
+  Lemma pop_spec γ q :
+    is_deque γ q -∗
+    own_deque γ q -∗
     <<< ∀∀ l : list val, deque_content γ l >>>
       pop q @ ↑N
     <<< ∃∃ (l' : list val) (ov : val),
@@ -504,7 +521,7 @@ Section proof.
         | SOMEV v => ⌜l = l' ++ [v]⌝
         | _ => False
         end,
-      RET ov, own_deque γ sz q >>>.
+      RET ov, own_deque γ q >>>.
   Proof with extended_auto.
     iIntros "#Inv Own" (Φ) "AU".
       iDestruct "Own" as (γq γpop γm arr top bot b l)
