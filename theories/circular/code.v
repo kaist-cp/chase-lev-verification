@@ -96,9 +96,10 @@ Section code.
     the owner thread decremented b trying to pop. *)
   Definition steal : val :=
     λ: "deque",
-      let: "arraysz" := !(arr "deque") in
-      let: "array" := Fst "arraysz" in
-      let: "sz" := Snd "arraysz" in
+      let: "arraysz" := AllocN #1 #0 in
+      "arraysz" <- !(arr "deque") ;;
+      let: "array" := Fst !"arraysz" in
+      let: "sz" := Snd !"arraysz" in
       let: "t" := !(top "deque") in
       let: "b" := !(bot "deque") in
       if: "b" ≤ "t" then NONE (* no chance *)
@@ -773,24 +774,25 @@ Section proof.
       RET ov >>>.
   Proof with extended_auto.
     iIntros "#Inv" (Φ) "AU".
-      iDestruct "Inv" as (arr sz top bot) "[%Q Inv]". subst.
-    wp_lam. unfold code.sz, code.arr, code.top, code.bot. wp_pures.
+      iDestruct "Inv" as (A' top bot) "[%Q Inv]". subst.
+    wp_lam. unfold code.arr, code.top, code.bot. wp_pures.
 
-    (* load sz *)
+    (* save the current array *)
+    wp_alloc A as "A". wp_pures.
     wp_bind (! _)%E.
-      iInv "Inv" as (γq γpop γm t1 b1 l1 Pop1)
+      iInv "Inv" as (γq γpop γm l1 Pop1 arr1 t1 b1)
         ">(%Enc & %Bound1 & Phys & Abst & Mono)".
       iDestruct "Mono" as (hl1) "[Mono %HistPref1]".
         iDestruct (mono_deque_get_lb with "Mono") as "#Mlb1".
       iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)". wp_load.
       iCombine "A↦ arr↦ t↦ b↦" as "Phys".
     iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, t1,b1,l1,Pop1. fr. }
-    wp_pures.
+      { iExists _,_,_, l1. fr. fr. }
+    wp_store. wp_load. wp_pures. wp_load. wp_pures.
 
     (* load top *)
     wp_bind (! _)%E.
-      iInv "Inv" as (γq' γpop' γm' t2 b2 l2 Pop2)
+      iInv "Inv" as (γq' γpop' γm' l2 Pop2 arr2 t2 b2)
         ">(%Enc' & %Bound2 & Phys & Abst & Mono)".
         encode_agree Enc.
       iDestruct "Mono" as (hl2) "[Mono %HistPref2]".
@@ -798,12 +800,12 @@ Section proof.
       iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)". wp_load.
       iCombine "A↦ arr↦ t↦ b↦" as "Phys".
     iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, t2,b2,l2,Pop2. fr. }
+      { iExists _,_,_, l2. fr. fr. }
     wp_pures.
 
     (* load bot *)
     wp_bind (! _)%E.
-      iInv "Inv" as (γq' γpop' γm' t3 b3 l3 Pop3)
+      iInv "Inv" as (γq' γpop' γm' l3 Pop3 arr3 t3 b3)
         ">(%Enc' & %Bound3 & Phys & Abst & Mono)".
         encode_agree Enc.
       iDestruct "Mono" as (hl3) "[Mono %HistPref3]".
@@ -812,7 +814,7 @@ Section proof.
       iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)". wp_load.
       iCombine "A↦ arr↦ t↦ b↦" as "Phys".
     iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, t3,b3,l3,Pop3. fr. }
+      { iExists _,_,_, l3. fr. fr. }
     wp_pures.
 
     (* no chance to steal *)
@@ -824,7 +826,12 @@ Section proof.
 
     (* read [t2] *)
     wp_bind (! _)%E. rewrite rem_mod_eq...
-      iInv "Inv" as (γq' γpop' γm' t4 b4 l4 Pop4)
+      simpl.
+
+
+      
+
+      iInv "Inv" as (γq' γpop' γm' l4 Pop4 arr4 t4 b4)
         ">(%Enc' & %Bound4 & Phys & Abst & Mono)".
         encode_agree Enc.
       iDestruct "Mono" as (hl4) "[Mono %HistPref4]".
