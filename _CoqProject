@@ -14,6 +14,9 @@ theories/mono_list.v
 theories/circular/helpers.v
 theories/circular/spec.v
 theories/circular/code.v
-theories/resizing/helpers.v
-theories/resizing/spec.v
-theories/resizing/code.v
+theories/circular2/helpers.v
+theories/circular2/spec.v
+theories/circular2/code.v
+#theories/resizing/helpers.v
+#theories/resizing/spec.v
+#theories/resizing/code.v
