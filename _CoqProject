@@ -7,16 +7,23 @@
 
 theories/atomic.v
 theories/mono_list.v
+
 # theories/linear/helpers.v	
 # theories/linear/code.v
+
 # theories/linear2/helpers.v
 # theories/linear2/code.v
+
 theories/circular/helpers.v
 theories/circular/spec.v
 theories/circular/code.v
+
 theories/circular2/helpers.v
-theories/circular2/spec.v
-theories/circular2/code.v
+theories/circular2/spec_circle.v
+theories/circular2/code_circle.v
+#theories/circular2/spec.v
+#theories/circular2/code.v
+
 #theories/resizing/helpers.v
 #theories/resizing/spec.v
 #theories/resizing/code.v
