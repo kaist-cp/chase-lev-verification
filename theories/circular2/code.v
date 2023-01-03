@@ -1,10 +1,10 @@
 From iris.algebra Require Import list excl_auth.
 From iris.bi.lib Require Import fractional.
-From iris.base_logic.lib Require Import invariants ghost_var mono_nat.
+From iris.base_logic.lib Require Import invariants ghost_var ghost_map mono_nat.
 From chase_lev Require Import mono_list atomic.
 From iris.heap_lang Require Import proofmode notation.
 From iris.prelude Require Import options.
-From chase_lev.circular Require Import helpers spec.
+From chase_lev.circular2 Require Import helpers code_circle.
 
 (*
 We use a finite length circular list without resizing.
@@ -55,13 +55,13 @@ Invariants:
 Section code.
   Definition new_deque : val :=
     λ: "sz",
-      let: "array" := AllocN "sz" #0 in
-      (ref ("array", "sz"), ref #1, ref #1). (* array+size, top, bot *)
+      let: "array" := new_circle "sz" in
+      (ref "array", ref #1, ref #1). (* array+size, top, bot *)
   
   Definition arr : val := λ: "deque", Fst (Fst "deque").
   Definition top : val := λ: "deque", Snd (Fst "deque").
   Definition bot : val := λ: "deque", Snd "deque".
-
+(*
   Definition push : val :=
     rec: "push" "deque" "v" :=
       let: "arraysz" := !(arr "deque") in
@@ -90,7 +90,7 @@ Section code.
       bot "deque" <- "t" + #1 ;;
       if: "ok" then SOME "v" (* popped *)
       else NONE. (* stolen *)
-
+*)
   (* NOTE: b ≤ t doesn't necessarily mean the deque was empty!
     It can also be the case that there was one element and
     the owner thread decremented b trying to pop. *)
@@ -98,12 +98,10 @@ Section code.
     λ: "deque",
       let: "t" := !(top "deque") in
       let: "b" := !(bot "deque") in
-      let: "arraysz" := AllocN #1 #0 in
-      "arraysz" <- !(arr "deque") ;;
-      let: "array" := Fst !"arraysz" in
-      let: "sz" := Snd !"arraysz" in
+      let: "array" := AllocN #1 #0 in
+      "array" <- !(arr "deque") ;;
       if: "b" ≤ "t" then NONE (* no chance *)
-      else let: "v" := !("array" +ₗ ("t" `rem` "sz")) in
+      else let: "v" := !(get_circle "array" "t") in
       if: CAS (top "deque") "t" ("t" + #1)
       then SOME "v" (* success *)
       else NONE. (* fail *)
@@ -115,19 +113,21 @@ Class dequeG Σ := DequeG {
     deque_tokG :> inG Σ (excl_authR $ listO valO);
     deque_popG :> ghost_varG Σ bool;
     mono_listG :> mono_listG val Σ;
-    mono_natG :> mono_natG Σ
+    mono_natG :> mono_natG Σ;
+    all_arraysG :> ghost_mapG Σ gname (list val)
   }.
 
 Definition dequeΣ : gFunctors :=
   #[GFunctor (excl_authR $ listO valO);
     ghost_varΣ bool;
     mono_listΣ val;
-    mono_natΣ
+    mono_natΣ;
+    ghost_mapΣ gname (list val)
   ].
 
 Global Instance subG_dequeΣ {Σ} : subG dequeΣ Σ → dequeG Σ.
 Proof. solve_inG. Qed.
-
+(*
 (* we wrap monotonicity for easier reasoning *)
 Section monotone_ghost.
   Context `{!heapGS Σ, !dequeG Σ} (N : namespace).
@@ -273,63 +273,59 @@ Section monotone_ghost.
     iExists _,_. repeat iSplit; auto; iFrame.
   Qed.
 End monotone_ghost.
-
+*)
 Section proof.
-  Context `{!heapGS Σ, !dequeG Σ} (N : namespace).
+  Context `{!heapGS Σ, !dequeG Σ, !circleG Σ} (N : namespace).
   Notation iProp := (iProp Σ).
 
-  Let arrayN := N .@ "array".
-  Let dequeN := N .@ "deque".
+  Definition all_arrays (γm γcur : gname) : iProp :=
+    ∃ (garrs : gmap gname (list val)),
+    ⌜γcur ∈ dom garrs⌝ ∗
+    ghost_map_auth γm 1 garrs ∗
+    [∗ map] γ ↦ l ∈ garrs,
+      ⌜γ = γcur⌝ ∨ circle_content γ l.
+      (* TODO: it should be circle_persistent_content! *)
 
-  Definition array_inv (γm : gname) (arr : loc) (n : nat) : iProp :=
-    ∃ (l' hl' : list val) (t' b' : nat),
-      ⌜length l' = n⌝ ∗
-      ⌜t' < b' → hl' !! t' = mod_get l' t'⌝ ∗
-      arr ↦∗{#1/2} l' ∗
-      mono_deque_lb_own γm hl' t' b'.
-
-  Definition deque_inv (γ : gname) (A top bot : loc) : iProp :=
-    ∃ (γq γpop γm : gname) (l : list val) (Popping : bool)
-    (arr : loc) (t b : nat),
-      ⌜γ = encode (γq, γpop, γm)⌝ ∗
-      ⌜1 ≤ t ≤ b ∧ length l > 0⌝ ∗
+  Definition deque_inv (γC γq γpop γm : gname) (A top bot : loc) : iProp :=
+    ∃ (t b : nat) (ca : val) (l : list val) (Popping : bool),
+      is_circle N γC ca ∗
       (* physical data *)
       ( let bp := if Popping then b-1 else b in
-        A ↦{#1/2} (#arr, #(length l)) ∗
-        inv arrayN (array_inv γm arr (length l)) ∗
-        top ↦ #t ∗ bot ↦{#1/2} #bp
+        A ↦{#1/2} ca ∗ top ↦ #t ∗ bot ↦{#1/2} #bp
       ) ∗
       (* logical data *)
-      ( own γq (●E (circ_slice l t b)) ∗
-        ghost_var γpop (1/2) Popping
+      ( circle_content γC l ∗
+        own γq (●E (circ_slice l t b)) ∗
+        ghost_var γpop (1/2) Popping ∗
+        all_arrays γm γC
       ) ∗
-      (* history of determined elements *)
+      (* monotonicity *)
       ( ∃ (hl : list val),
-        mono_deque_auth_own γm hl t b ∗
-        ⌜t < b → hl !! t = mod_get l t⌝
+        True ∗ (*mono_deque_auth_own γmono hl t b ∗*)
+        True (*⌜t < b → hl !! t = mod_get l t⌝*)
       ).
 
   Definition is_deque (γ : gname) (q : val) : iProp :=
-    ∃ (A top bot : loc),
+    ∃ (γC γq γpop γm : gname) (A top bot : loc),
       ⌜q = (#A, #top, #bot)%V⌝ ∗
-      inv dequeN (deque_inv γ A top bot).
+      ⌜γ = encode (γC, γq, γpop, γm)⌝ ∗
+      inv N (deque_inv γC γq γpop γm A top bot).
   Global Instance is_deque_persistent γ q :
     Persistent (is_deque γ q) := _.
 
   Definition deque_content (γ : gname) (frag : list val) : iProp :=
-    ∃ (γq γpop γm : gname),
-      ⌜γ = encode (γq, γpop, γm)⌝ ∗
+    ∃ (γC γq γpop γm : gname),
+      ⌜γ = encode (γC, γq, γpop, γm)⌝ ∗
       own γq (◯E frag).
 
   (* owner of the deque who can call push and pop *)
   Definition own_deque (γ : gname) (q : val) : iProp :=
-    ∃ (γq γpop γm : gname) (l : list val)
-    (A arr top bot : loc) (b : nat),
-      ⌜γ = encode (γq, γpop, γm)⌝ ∗
+    ∃ (γC γq γpop γm : gname) (ca : val) (A top bot : loc) (b : nat),
+      ⌜γ = encode (γC, γq, γpop, γm)⌝ ∗
       ⌜q = (#A, #top, #bot)%V⌝ ∗
       ghost_var γpop (1/2) false ∗
-      A ↦{#1/2} (#arr, #(length l)) ∗
-      arr ↦∗{#1/2} l ∗ bot ↦{#1/2} #b.
+      A ↦{#1/2} ca ∗ bot ↦{#1/2} #b ∗
+      own_circle ca.
   
   Ltac extended_auto :=
     eauto;
@@ -351,8 +347,8 @@ Section proof.
     deque_content γ frag1 -∗ deque_content γ frag2 -∗ False.
   Proof.
     iIntros "C1 C2".
-      iDestruct "C1" as (γq γpop γm) "[%Enc C1]".
-      iDestruct "C2" as (γq' γpop' γm') "[%Enc' C2]".
+      iDestruct "C1" as (γC γq γpop γm) "[%Enc C1]".
+      iDestruct "C2" as (γC' γq' γpop' γm') "[%Enc' C2]".
       encode_agree Enc.
     by iDestruct (own_valid_2 with "C1 C2") as %?%auth_frag_op_valid_1.
   Qed.
@@ -382,26 +378,28 @@ Section proof.
     }}}.
   Proof with extended_auto.
     iIntros (Hsz Φ) "_ HΦ". wp_lam.
+
     (* allocate *)
-    wp_alloc arr as "[arr↦1 arr↦2]"... wp_pures.
+    wp_bind (new_circle _)%E.
+    iApply (new_circle_spec N)...
+    iIntros (γC ca l) "!> (%Len & IC & 🎯 & Ⓜ️)". wp_pures.
     wp_alloc bot as "[b↦1 b↦2]". wp_alloc top as "t↦".
-    wp_alloc A as "[A↦1 A↦2]".
+    wp_alloc A as "[A↦1 A↦2]". wp_pures.
+
     (* make resources *)
     iMod (own_alloc (●E [] ⋅ ◯E [])) as (γq) "[γq● γq◯]".
       1: apply excl_auth_valid.
     iMod (ghost_var_alloc false) as (γpop) "[γpop1 γpop2]".
-    iMod (mono_deque_own_alloc #0) as (γm) "γm".
-    iDestruct (mono_deque_get_lb with "γm") as "#γlb".
-    iMod (inv_alloc arrayN _ (array_inv γm arr n)
-      with "[arr↦1 γlb]") as "AInv".
-    { iExists (replicate n #0),(#0::[]),1,1. fr. }
-    iMod (inv_alloc dequeN _ (deque_inv (encode (γq, γpop, γm)) A top bot)
-      with "[A↦1 AInv t↦ b↦1 γq● γpop1 γm]") as "Inv".
-    { iExists _,_,_, (replicate n #0),false,arr,1,1.
-      fr. fr... }
-    wp_pures. iApply "HΦ". iModIntro. fr.
-    iSplitL "γq◯". 1: fr.
-    iExists _,_,_, (replicate n #0). fr. fr. instantiate (1:=1)...
+    iMod (ghost_map_alloc {[γC:=nil]}) as (γm) "[γm elems]".
+    iMod (inv_alloc N _ (deque_inv γC γq γpop γm A top bot)
+      with "[A↦1 t↦ b↦1 IC 🎯 γq● γpop1 γm]") as "Inv".
+    { iExists 1, 1. fr. fr.
+      rewrite dom_singleton elem_of_singleton big_sepM_singleton...
+    }
+
+    (* apply Φ *)
+    iApply "HΦ". iModIntro. iSplitL "Inv"; first fr.
+    iSplitL "γq◯"; first fr. fr. fr. instantiate (1:=1)...
   Qed.
 (*
   Lemma push_spec γ q (v : val) :
