@@ -101,7 +101,7 @@ Section code.
       let: "array" := AllocN #1 #0 in
       "array" <- !(arr "deque") ;;
       if: "b" ≤ "t" then NONE (* no chance *)
-      else let: "v" := !(get_circle "array" "t") in
+      else let: "v" := get_circle !"array" "t" in
       if: CAS (top "deque") "t" ("t" + #1)
       then SOME "v" (* success *)
       else NONE. (* fail *)
@@ -278,6 +278,9 @@ Section proof.
   Context `{!heapGS Σ, !dequeG Σ, !circleG Σ} (N : namespace).
   Notation iProp := (iProp Σ).
 
+  Let circleN := N .@ "circle".
+  Let dequeN := N .@ "deque".
+
   Definition all_arrays (γm γcur : gname) : iProp :=
     ∃ (garrs : gmap gname (list val)),
     ⌜γcur ∈ dom garrs⌝ ∗
@@ -286,46 +289,53 @@ Section proof.
       ⌜γ = γcur⌝ ∨ circle_content γ l.
       (* TODO: it should be circle_persistent_content! *)
 
-  Definition deque_inv (γC γq γpop γm : gname) (A top bot : loc) : iProp :=
-    ∃ (t b : nat) (ca : val) (l : list val) (Popping : bool),
-      is_circle N γC ca ∗
-      (* physical data *)
-      ( let bp := if Popping then b-1 else b in
-        A ↦{#1/2} ca ∗ top ↦ #t ∗ bot ↦{#1/2} #bp
-      ) ∗
-      (* logical data *)
-      ( circle_content γC l ∗
-        own γq (●E (circ_slice l t b)) ∗
-        ghost_var γpop (1/2) Popping ∗
+  Definition deque_inv (γq γpop γm : gname) (A top bot : loc) : iProp :=
+    ∃ (l : list val) (t b : nat),
+      ⌜1 ≤ t ≤ b⌝ ∗
+      (* circular array *)
+      ( ∃ (γC : gname) (ca : val),
+        A ↦{#1/2} ca ∗ 
+        is_circle circleN γC ca ∗ circle_content γC l ∗
         all_arrays γm γC
       ) ∗
-      (* monotonicity *)
-      ( ∃ (hl : list val),
-        True ∗ (*mono_deque_auth_own γmono hl t b ∗*)
-        True (*⌜t < b → hl !! t = mod_get l t⌝*)
+      (* top *)
+      top ↦ #t ∗
+      (* bottom *)
+      ( ∃ (Popping : bool),
+        let bp := if Popping then b-1 else b in
+        bot ↦{#1/2} #bp ∗
+        ghost_var γpop (1/2) Popping
+      ) ∗
+      (* logical data *)
+      ( own γq (●E (circ_slice l t b)) ∗
+        ( ∃ (hl : list val),
+          True ∗ (*mono_deque_auth_own γmono hl t b ∗*)
+          True (*⌜t < b → hl !! t = mod_get l t⌝*)
+        )
       ).
 
   Definition is_deque (γ : gname) (q : val) : iProp :=
-    ∃ (γC γq γpop γm : gname) (A top bot : loc),
+    ∃ (γq γpop γm : gname) (A top bot : loc),
       ⌜q = (#A, #top, #bot)%V⌝ ∗
-      ⌜γ = encode (γC, γq, γpop, γm)⌝ ∗
-      inv N (deque_inv γC γq γpop γm A top bot).
+      ⌜γ = encode (γq, γpop, γm)⌝ ∗
+      inv dequeN (deque_inv γq γpop γm A top bot).
   Global Instance is_deque_persistent γ q :
     Persistent (is_deque γ q) := _.
 
   Definition deque_content (γ : gname) (frag : list val) : iProp :=
-    ∃ (γC γq γpop γm : gname),
-      ⌜γ = encode (γC, γq, γpop, γm)⌝ ∗
+    ∃ (γq γpop γm : gname),
+      ⌜γ = encode (γq, γpop, γm)⌝ ∗
       own γq (◯E frag).
 
   (* owner of the deque who can call push and pop *)
   Definition own_deque (γ : gname) (q : val) : iProp :=
-    ∃ (γC γq γpop γm : gname) (ca : val) (A top bot : loc) (b : nat),
-      ⌜γ = encode (γC, γq, γpop, γm)⌝ ∗
+    ∃ (γq γpop γm : gname) (ca : val) (A top bot : loc) (b : nat),
+      ⌜γ = encode (γq, γpop, γm)⌝ ∗
       ⌜q = (#A, #top, #bot)%V⌝ ∗
-      ghost_var γpop (1/2) false ∗
-      A ↦{#1/2} ca ∗ bot ↦{#1/2} #b ∗
-      own_circle ca.
+      (* own circle *)
+      A ↦{#1/2} ca ∗ own_circle ca ∗
+      (* own bottom *)
+      bot ↦{#1/2} #b ∗ ghost_var γpop (1/2) false.
   
   Ltac extended_auto :=
     eauto;
@@ -381,7 +391,7 @@ Section proof.
 
     (* allocate *)
     wp_bind (new_circle _)%E.
-    iApply (new_circle_spec N)...
+    iApply (new_circle_spec circleN)...
     iIntros (γC ca l) "!> (%Len & IC & 🎯 & Ⓜ️)". wp_pures.
     wp_alloc bot as "[b↦1 b↦2]". wp_alloc top as "t↦".
     wp_alloc A as "[A↦1 A↦2]". wp_pures.
@@ -391,9 +401,10 @@ Section proof.
       1: apply excl_auth_valid.
     iMod (ghost_var_alloc false) as (γpop) "[γpop1 γpop2]".
     iMod (ghost_map_alloc {[γC:=nil]}) as (γm) "[γm elems]".
-    iMod (inv_alloc N _ (deque_inv γC γq γpop γm A top bot)
+    iMod (inv_alloc dequeN _ (deque_inv γq γpop γm A top bot)
       with "[A↦1 t↦ b↦1 IC 🎯 γq● γpop1 γm]") as "Inv".
-    { iExists 1, 1. fr. fr.
+    { iExists l, 1, 1. fr.
+      iSplitL "A↦1 IC 🎯 γm"; fr. fr.
       rewrite dom_singleton elem_of_singleton big_sepM_singleton...
     }
 
@@ -787,145 +798,58 @@ Section proof.
       RET ov >>>.
   Proof with extended_auto.
     iIntros "#Inv" (Φ) "AU".
-      iDestruct "Inv" as (A' top bot) "[%Q Inv]". subst.
+      iDestruct "Inv" as (γq γpop γm A top bot) "(%Q & %Enc & Inv)".
+      rewrite Q.
     wp_lam. unfold code.arr, code.top, code.bot. wp_pures.
 
     (* load top *)
     wp_bind (! _)%E.
-      iInv "Inv" as (γq γpop γm l1 Pop1 arr1 t1 b1)
-        "(>%Enc & >%Bound1 & Phys & >Abst & >Mono)".
-      iDestruct "Mono" as (hl1) "[Mono %HistPref1]".
-        iDestruct (mono_deque_get_lb with "Mono") as "#Mlb1".
-      iDestruct "Phys" as "(>A↦ & #AInv1 & >t↦ & >b↦)". wp_load.
-      iCombine "A↦ AInv1 t↦ b↦" as "Phys".
-    iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, l1. fr. fr. }
+    iInv "Inv" as (l1 t1 b1) "(>%Htb1 & Circle & >top↦ & Bot & Log)".
+      wp_load.
+    iModIntro. iSplitL "Circle top↦ Bot Log"; fr.
     wp_pures.
 
     (* load bot *)
     wp_bind (! _)%E.
-      iInv "Inv" as (γq' γpop' γm' l2 Pop2 arr2 t2 b2)
-        "(>%Enc' & >%Bound2 & Phys & >Abst & >Mono)".
-        encode_agree Enc.
-      iDestruct "Mono" as (hl2) "[Mono %HistPref2]".
-        iDestruct (mono_deque_get_lb with "Mono") as "#Mlb2".
-        iDestruct (mono_deque_auth_lb_top with "Mono Mlb1") as "%Ht12".
-      iDestruct "Phys" as "(>A↦ & #AInv2 & >t↦ & >b↦)". wp_load.
-      iCombine "A↦ AInv2 t↦ b↦" as "Phys".
-    iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, l2. fr. fr. }
+    iInv "Inv" as (l2 t2 b2) "(>%Htb2 & Circle & top↦ & >Bot & Log)".
+      iDestruct "Bot" as (Pop2) "[bot↦ Pop]". wp_load.
+      iCombine "bot↦ Pop" as "Bot".
+    iModIntro. iSplitL "Circle top↦ Bot Log"; fr.
     wp_pures.
 
-    (* save the current array *)
-    wp_alloc A as "A". wp_pures.
+    (* load array *)
+    wp_alloc arr as "arr↦". wp_pures.
     wp_bind (! _)%E.
-      iInv "Inv" as (γq' γpop' γm' l3 Pop3 arr3 t3 b3)
-        "(>%Enc' & >%Bound3 & Phys & >Abst & >Mono)".
-        encode_agree Enc.
-      iDestruct "Mono" as (hl3) "[Mono %HistPref3]".
-        iDestruct (mono_deque_get_lb with "Mono") as "#Mlb3".
-        iDestruct (mono_deque_auth_lb_top with "Mono Mlb2") as "%Ht23".
-      iDestruct "Phys" as "(>A↦ & #AInv3 & >t↦ & >b↦)". wp_load.
-      iCombine "A↦ AInv3 t↦ b↦" as "Phys".
-    iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, l3. fr. fr. }
-    wp_store. wp_load. wp_pures. wp_load. wp_pures.
+    iInv "Inv" as (l3 t3 b3) "(>%Htb3 & Circle & top↦ & Bot & Log)".
+      iDestruct "Circle" as (γC3 ca3) "(A↦ & #🌀3 & 🎯 & 📚)". wp_load.
+      iCombine "A↦ 🌀3 🎯 📚" as "Circle".
+    iModIntro. iSplitL "Circle top↦ Bot Log"; fr.
+    wp_store.
+
+    replace (
+      if Pop2 then LitInt (Z.of_nat b2 - 1) else LitInt (Z.of_nat b2)
+    ) with (
+      LitInt (Z.of_nat (if Pop2 then b2 - 1 else b2))
+    ); last first.
+    { destruct Pop2... admit. }
+    wp_pures.
 
     (* no chance to steal *)
-    case_bool_decide; wp_pures.
+    case_bool_decide as Hif; wp_pures.
     { iMod "AU" as (l) "[Cont [_ Commit]]".
       iMod ("Commit" $! l NONEV with "[Cont]") as "Φ"...
       iApply "Φ"... }
-    assert (t1 < b2) as Htb12. 1: destruct Pop2...
+    (*assert (t1 < b2) as Htb12. 1: destruct Pop2...*)
 
-    (* read [t1] *)
-    wp_bind (! _)%E.
-      rewrite rem_mod_eq...
-      iInv "AInv3" as (l' hl' t' b') ">(%Hl' & %HistPref' & arr1↦ & #Mlb')".
-        destruct (mod_get_is_Some l' t1) as [v Ht1]...
-        iApply (wp_load_offset with "arr1↦"). 1: rewrite <- Hl'...
-        iIntros "!> arr1↦". iModIntro.
-      iSplitL "arr1↦". 1: fr.
-    wp_pures.
-
-    (*
-      iInv "Inv" as (γq' γpop' γm' l4 Pop4 arr4 t4 b4)
-        ">(%Enc' & %Bound4 & Phys & Abst & Mono)".
-        encode_agree Enc.
-      iDestruct "Mono" as (hl4) "[Mono %HistPref4]".
-        iDestruct (mono_deque_get_lb with "Mono") as "#Mlb4".
-        iDestruct (mono_deque_auth_lb_top with "Mono Mlb3") as "%Ht34".
-      destruct (mod_get_is_Some l4 t2) as [v Hv]...
-      iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)".
-        iApply (wp_load_offset with "arr↦").
-          { destruct Bound4 as [_ [e _]]. rewrite -e... }
-        iNext. iIntros "arr↦".
-      iCombine "A↦ arr↦ t↦ b↦" as "Phys".
-    iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, t3,b3,l3,Pop3. fr. }
-    wp_pures.
-    *)
-
-    (* cas top *)
-    wp_bind (CmpXchg _ _ _)%E.
-      iInv "Inv" as (γq' γpop' γm' l4 Pop4 arr4 t4 b4)
-        "(>%Enc' & >%Bound4 & Phys & >Abst & >Mono)".
-        encode_agree Enc.
-      iDestruct "Mono" as (hl4) "[Mono %HistPref4]".
-        iDestruct (mono_deque_get_lb with "Mono") as "#Mlb4".
-        iDestruct (mono_deque_auth_lb_top with "Mono Mlb3") as "%Ht34".
-        iDestruct (mono_deque_auth_lb_top with "Mono Mlb'") as "%Ht'4".
-    destruct (decide (t1 = t4)).
-    - (* success *)
-      assert (t1 = t2)... assert (t2 = t3)... subst t1 t2 t3.
-        iDestruct (mono_deque_lb_history with "Mlb3") as "%Hist3".
-        destruct Hist3 as [NO|[Hist3 Htb3]]...
-        iDestruct (mono_deque_lb_history with "Mlb4") as "%Hist4".
-        destruct Hist4 as [NO|[Hist4 Htb4]]...
-        iDestruct (mono_deque_lb_history with "Mlb'") as "%Hist'".
-        destruct Hist' as [NO|[Hist' Htb']]...
-        (*
-        apply HistPref4 in Htb4.
-      iDestruct (mono_deque_lb_lookup _ t4 with "Mlb' Mlb4") as "%H34"...
-      assert (mod_get l3 t4 = mod_get l4 t4) as Hl34.
-      { apply HistPref3 in Htb3. apply HistPref4 in Htb4. rewrite -Htb3 -Htb4... }
-      rewrite Hl34 in Hv.*)
-      iDestruct "Phys" as "(>A↦ & #AInv4 & >t↦ & >b↦)".
-        wp_cmpxchg_suc.
-        replace (Z.of_nat t4 + 1)%Z with (Z.of_nat (S t4))...
-      iCombine "A↦ AInv4 t↦ b↦" as "Phys".
-      destruct (mod_get_is_Some l4 (S t4)) as [v' Hv']...
-      iMod (mono_deque_steal _ v' with "Mono") as "Mono"...
-
-      (* AU *)
-      iMod "AU" as (lau) "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq' γpop' γm') "[%Enc' ◯]".
-        encode_agree Enc.
-      iDestruct "Abst" as "[● P]".
-        iDestruct (own_ea_agree with "● ◯") as "%". subst lau.
-        iMod (own_ea_update (circ_slice l4 (S t4) b4) with "● ◯") as "[● ◯]".
-      iCombine "● P" as "Abst".
-      iMod ("Commit" $! (circ_slice l4 (S t4) b4) (SOMEV v) with "[◯]") as "Φ".
-        { fr. simpl. erewrite <- circ_slice_shrink_left...
-          rewrite <- HistPref4... rewrite <- Ht1, <- HistPref'... 
-        }
-      iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, l4,Pop4,_,(S t4),b4. iFrame. fr.
-        iPureIntro; intros. case_decide... rewrite Hv' lookup_app_r...
-        replace (S t4 - length hl4) with 0... }
-      wp_pures. iApply "Φ"...
-    - (* fail *)
-      iDestruct "Phys" as "(>A↦ & #AInv4 & >t↦ & >b↦)".
-        wp_cmpxchg_fail. { intro NO. injection NO... }
-      iCombine "A↦ AInv4 t↦ b↦" as "Phys".
-      iMod "AU" as (l) "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq' γpop' γm') "[%Enc' Cont]".
-        encode_agree Enc.
-      iMod ("Commit" $! l NONEV with "[Cont]") as "Φ". 1: fr.
-      iModIntro. iSplitL "Phys Abst Mono".
-        { iExists _,_,_, l4,Pop4,_,t4,b4. fr. }
-      wp_pures. iApply "Φ"...
-  Qed.
+    (* get_circle *)
+    wp_load. wp_bind (get_circle _ _)%E.
+    awp_apply get_circle_spec...
+    iInv "Inv" as (l4 t4 b4) "(>%Htb4 & Circle & top↦ & Bot & Log)".
+      iDestruct "Circle" as (γC4 ca4) "(A↦ & #🌀4 & 🎯 & 📚)".
+      unfold circle_content. iDestruct "🎯" as ">🎯".
+      replace γC4 with γC3. 2: admit.
+      iAaccIntro with "🎯".
+  Admitted.
 End proof.
 
 Program Definition atomic_deque `{!heapGS Σ, !dequeG Σ} :
