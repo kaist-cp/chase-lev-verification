@@ -846,9 +846,10 @@ Section proof.
     awp_apply get_circle_spec...
     iInv "Inv" as (l4 t4 b4) "(>%Htb4 & Circle & top↦ & Bot & Log)".
       iDestruct "Circle" as (γC4 ca4) "(A↦ & #🌀4 & 🎯 & 📚)".
-      unfold circle_content. iDestruct "🎯" as ">🎯".
-      replace γC4 with γC3. 2: admit.
-      iAaccIntro with "🎯".
+      destruct (decide (γC3 = γC4)).
+      - subst γC4.
+        unfold circle_content. iDestruct "🎯" as ">🎯".
+        iAaccIntro with "[🎯]".
   Admitted.
 End proof.
 

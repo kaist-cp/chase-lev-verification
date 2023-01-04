@@ -59,7 +59,11 @@ Section proof.
     Persistent (is_circle γ q) := _.
 
   Definition circle_content (γ : gname) (l : list val) : iProp :=
-      own γ (◯E l).
+    own γ (◯E l).
+  
+  Definition persistent_circle (ca : val) (l : list val) : iProp :=
+    ∃ (arr : loc),
+    ⌜ca = (#arr, #(length l))%V⌝ ∗ arr ↦∗□ l.
 
   Definition own_circle (ca : val) : iProp :=
     ∃ (arr : loc) (l : list val),
@@ -126,11 +130,12 @@ Section proof.
 
   Lemma get_circle_spec γ ca (i : nat) :
     is_circle γ ca -∗
-    <<< ∀∀ l : list val, circle_content γ l >>>
+    <<< ∀∀ (l : list val) (current : bool),
+      if current then circle_content γ l else persistent_circle ca l >>>
       get_circle ca #i @ ↑N
     <<< ∃∃ v,
       ⌜mod_get l i = Some v⌝ ∗
-      circle_content γ l,
+      if current then circle_content γ l else persistent_circle ca l,
     RET v >>>.
   Proof with extended_auto.
     iIntros "#Is" (Φ) "AU".
@@ -139,16 +144,27 @@ Section proof.
 
     rewrite rem_mod_eq...
     iInv "Inv" as (l) ">(%Len & arr↦ & ●)".
-    iMod "AU" as (l') "[Cont [_ Commit]]".
+    iMod "AU" as (l' current) "[Cont [_ Commit]]".
+    destruct current.
+    - (* is current, has content *)
       iDestruct (own_ea_agree with "● Cont") as "%". subst l'.
-    destruct (mod_get_is_Some l i) as [v Hv]...
-    iApply (wp_load_offset with "arr↦"). 1: rewrite -Len...
-    iNext. iIntros "arr↦".
-    iMod ("Commit" $! v with "[Cont]") as "Φ". 1: fr.
-    repeat iModIntro.
-
-    iSplitL "● arr↦". { iExists l. fr. }
-    by iApply "Φ".
+      destruct (mod_get_is_Some l i) as [v Hv]...
+      iApply (wp_load_offset with "arr↦"). 1: rewrite -Len...
+      iNext. iIntros "arr↦".
+      iMod ("Commit" $! v with "[Cont]") as "Φ". 1: fr.
+      repeat iModIntro.
+      iSplitL "● arr↦". { iExists l. fr. }
+      by iApply "Φ".
+    - (* is past, has persistent array *)
+      iDestruct "Cont" as (arr') "[%Heq pers]".
+      injection Heq as [= <- Hl']. assert (length l' = n)as Hl'n...
+      destruct (mod_get_is_Some l' i) as [v Hv]...
+      iApply (wp_load_offset with "pers"). 1: rewrite -Hl'n...
+      iNext. iIntros "pers".
+      iMod ("Commit" $! v with "[pers]") as "Φ". 1: rewrite -Hl'n; fr.
+      repeat iModIntro.
+      iSplitL "● arr↦". { iExists l. fr. }
+      by iApply "Φ".
   Qed.
 End proof.
 

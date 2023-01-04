@@ -18,6 +18,7 @@ Record atomic_circle {Σ} `{!heapGS Σ} := AtomicCIRCLE {
   is_circle (N : namespace) (γ : name) (ca : val) : iProp Σ;
   own_circle (N : namespace) (ca : val) : iProp Σ;
   circle_content (γ : name) (ls : list val) : iProp Σ;
+  persistent_circle (ca : val) (ls : list val) : iProp Σ;
   (* -- predicate properties -- *)
   is_circle_persistent N γ ca : Persistent (is_circle N γ ca);
   circle_content_timeless γ ls : Timeless (circle_content γ ls);
@@ -34,11 +35,12 @@ Record atomic_circle {Σ} `{!heapGS Σ} := AtomicCIRCLE {
     }}};
   get_circle_spec N γ ca (i : nat) :
     is_circle N γ ca -∗
-    <<< ∀∀ l : list val, circle_content γ l >>>
+    <<< ∀∀ (l : list val) (current : bool),
+      if current then circle_content γ l else persistent_circle ca l >>>
       get_circle ca #i @ ↑N
     <<< ∃∃ v,
       ⌜mod_get l i = Some v⌝ ∗
-      circle_content γ l,
+      if current then circle_content γ l else persistent_circle ca l,
     RET v >>>;
 (*
   pop_spec N γ sz q :
