@@ -112,202 +112,84 @@ End code.
 Class dequeG Σ := DequeG {
     deque_tokG :> inG Σ (excl_authR $ listO valO);
     deque_popG :> ghost_varG Σ bool;
-    mono_listG :> mono_listG val Σ;
     mono_natG :> mono_natG Σ;
     gcasG :> ghost_mapG Σ gname val;
-    garrsG :> ghost_mapG Σ gname (list val)
+    garrsG :> ghost_mapG Σ gname (list val * nat * nat);
+    geltsG :> ghost_mapG Σ nat val
   }.
 
 Definition dequeΣ : gFunctors :=
   #[GFunctor (excl_authR $ listO valO);
     ghost_varΣ bool;
-    mono_listΣ val;
     mono_natΣ;
-    ghost_mapΣ gname (list val);
-    ghost_mapΣ gname val
+    ghost_mapΣ gname (list val * nat * nat);
+    ghost_mapΣ gname val;
+    ghost_mapΣ nat val
   ].
 
 Global Instance subG_dequeΣ {Σ} : subG dequeΣ Σ → dequeG Σ.
 Proof. solve_inG. Qed.
-(*
-(* we wrap monotonicity for easier reasoning *)
-Section monotone_ghost.
-  Context `{!heapGS Σ, !dequeG Σ} (N : namespace).
-  Notation iProp := (iProp Σ).
-
-  Definition mono_deque_auth_own (γm : gname) (hl : list val) (t b : nat) : iProp :=
-    ∃ (γl γt : gname),
-    ⌜γm = encode (γl, γt)⌝ ∗
-    ⌜(length hl = t ∧ t = b) ∨ (length hl = S t ∧ t < b)⌝ ∗
-    mono_list_auth_own γl 1 hl ∗
-    mono_nat_auth_own γt 1 t.
-
-  Definition mono_deque_lb_own (γm : gname) (hl : list val) (t b : nat) : iProp :=
-    ∃ (γl γt : gname),
-    ⌜γm = encode (γl, γt)⌝ ∗
-    ⌜(length hl = t ∧ t = b) ∨ (length hl = S t ∧ t < b)⌝ ∗
-    mono_list_lb_own γl hl ∗
-    mono_nat_lb_own γt t.
-
-  Lemma mono_deque_own_alloc v :
-    ⊢ |==> ∃ γ, mono_deque_auth_own γ [v] 1 1.
-  Proof.
-    iMod (mono_list_own_alloc [v]) as (γl) "[L _]".
-    iMod (mono_nat_own_alloc 1) as (γtb) "[N _]".
-    iExists (encode (γl, γtb)). iModIntro.
-    iExists _,_. iSplit; iFrame; auto.
-  Qed.
-
-  Lemma mono_deque_auth_history γm l t b :
-    mono_deque_auth_own γm l t b -∗
-    ⌜(length l = t ∧ t = b) ∨ (length l = S t ∧ t < b)⌝.
-  Proof. iIntros "(%γl & %γt & %ENC & %BOUND & L & N)". auto. Qed.
-
-  Lemma mono_deque_lb_history γm l t b :
-    mono_deque_lb_own γm l t b -∗
-    ⌜(length l = t ∧ t = b) ∨ (length l = S t ∧ t < b)⌝.
-  Proof. iIntros "(%γl & %γt & %ENC & %BOUND & L & N)". auto. Qed.
-
-  Lemma mono_deque_lb_lookup γm i l1 t1 b1 l2 t2 b2 :
-    i < length l1 → i < length l2 →
-    mono_deque_lb_own γm l1 t1 b1 -∗ mono_deque_lb_own γm l2 t2 b2 -∗
-    ⌜l1 !! i = l2 !! i⌝.
-  Proof.
-    iIntros (Hi Hv).
-    iIntros "(%γl & %γt & %ENC1 & %BOUND1 & L1 & N1)".
-    iIntros "(%γl' & %γt' & %ENC2 & %BOUND2 & L2 & N2)".
-      encode_agree ENC1.
-    assert (is_Some (l1 !! i)) as [v1 Hv1] by (rewrite lookup_lt_is_Some; auto).
-    assert (is_Some (l2 !! i)) as [v2 Hv2] by (rewrite lookup_lt_is_Some; auto).
-    iDestruct (mono_list_lb_valid with "L1 L2") as "%Pref".
-    destruct Pref.
-    - rewrite Hv1. erewrite prefix_lookup; eauto.
-    - rewrite Hv2. erewrite prefix_lookup; eauto.
-  Qed.
-
-  Lemma mono_deque_get_lb γm l t b :
-    mono_deque_auth_own γm l t b -∗
-    mono_deque_lb_own γm l t b.
-  Proof.
-    iIntros "(%γl & %γt & %ENC & %BOUND & L & N)".
-    iDestruct (mono_list_lb_own_get with "L") as "#Llb".
-    iDestruct (mono_nat_lb_own_get with "N") as "#Nlb".
-    iExists _,_. repeat iSplit; auto.
-  Qed.
-
-  Lemma mono_deque_auth_lb_length γm l1 t1 b1 l2 t2 b2 :
-    mono_deque_auth_own γm l1 t1 b1 -∗ mono_deque_lb_own γm l2 t2 b2 -∗
-    ⌜length l2 ≤ length l1⌝.
-  Proof.
-    iIntros "(%γl & %γt & %ENC1 & %BOUND1 & L1 & N1)".
-    iIntros "(%γl' & %γt' & %ENC2 & %BOUND2 & L2 & N2)".
-      encode_agree ENC1.
-    iDestruct (mono_list_auth_lb_valid with "L1 L2") as "[_ %Pref]".
-    by apply prefix_length in Pref.
-  Qed.
-
-  Lemma mono_deque_auth_lb_top γm l1 t1 b1 l2 t2 b2 :
-    mono_deque_auth_own γm l1 t1 b1 -∗ mono_deque_lb_own γm l2 t2 b2 -∗
-    ⌜t2 ≤ t1 ∧ (t1 = t2 → t2 < b2 → t1 < b1)⌝.
-  Proof.
-    iIntros "D1 D2".
-    iDestruct (mono_deque_auth_lb_length with "D1 D2") as "%D".
-    iDestruct "D1" as "(%γl & %γt & %ENC1 & %BOUND1 & L1 & N1)".
-    iDestruct "D2" as "(%γl' & %γt' & %ENC2 & %BOUND2 & L2 & N2)".
-      encode_agree ENC1.
-    iDestruct (mono_nat_lb_own_valid with "N1 N2") as "[_ %Le]".
-    iPureIntro. lia.
-  Qed.
-
-  Lemma mono_deque_steal γm v l t b :
-    t < b →
-    mono_deque_auth_own γm l t b ==∗
-    mono_deque_auth_own γm
-      (if decide (S t = b) then l else l ++ [v])
-      (S t) b.
-  Proof.
-    iIntros (H) "(%γl & %γt & %ENC & %BOUND & L & N)".
-    destruct BOUND; try lia.
-    iMod (mono_nat_own_update (S t) with "N") as "[N _]". 1: lia.
-    case_decide.
-    - iModIntro. iExists _,_. repeat iSplit; auto; iFrame.
-      iPureIntro. lia.
-    - iMod (mono_list_auth_own_update (l ++ [v]) with "L") as "[L _]".
-      1: by apply prefix_app_r.
-      iModIntro. iExists _,_. repeat iSplit; auto; iFrame.
-      iPureIntro. right. split; try lia.
-      rewrite app_length; simpl. lia.
-  Qed.
-
-  Lemma mono_deque_pop_singleton γm l t :
-    mono_deque_auth_own γm l t (S t) ==∗
-    mono_deque_auth_own γm l (S t) (S t).
-  Proof.
-    iIntros "D".
-    iMod (mono_deque_steal _ #() with "D"). 1: lia.
-    case_decide; auto. by destruct H.
-  Qed.
-
-  Lemma mono_deque_push γm l2 b2 l1 t b1 :
-    b1 < b2 →
-    ((t = b1 ∧ ∃ v, l2 = l1 ++ [v]) ∨
-      (t < b1 ∧ l1 = l2)
-    ) →
-    mono_deque_auth_own γm l1 t b1 ==∗ mono_deque_auth_own γm l2 t b2.
-  Proof.
-    iIntros (H HU) "(%γl & %γt & %ENC & %BOUND & L & N)".
-    destruct HU as [[Ht [v Hl]]|[Ht Hl]];
-    destruct BOUND as [[Hl1 Hb]|[Hl1 Hb]]; try lia; subst.
-    - iMod (mono_list_auth_own_update (l1 ++ [v]) with "L") as "[L _]".
-      { by apply prefix_app_r. }
-      iModIntro. iExists _,_. repeat iSplit; auto; iFrame.
-      iPureIntro. right; split; auto. rewrite app_length; simpl. lia.
-    - iModIntro. iExists _,_. repeat iSplit; auto; iFrame.
-      iPureIntro. right; split; auto. lia.
-  Qed.
-
-  Lemma mono_deque_pop γm b2 l t b1 :
-    t < b1 → t < b2 →
-    mono_deque_auth_own γm l t b1 -∗ mono_deque_auth_own γm l t b2.
-  Proof.
-    iIntros (H1 H2) "(%γl & %γt & %ENC & %BOUND & L & N)".
-    destruct BOUND as [[Hl1 Hb]|[Hl1 Hb]]; try lia.
-    iExists _,_. repeat iSplit; auto; iFrame.
-  Qed.
-End monotone_ghost.
-*)
 
 Section all_arrays.
   Context `{!heapGS Σ, !dequeG Σ}.
   Notation iProp := (iProp Σ).
 
+  Definition fixed_top (γm : gname) (l : list val) (t b : nat) : iProp :=
+    (if bool_decide (t < b)
+      then (∃ (γmarr γmca γmelt : gname) v,
+        ⌜γm = encode (γmarr, γmca, γmelt)⌝ ∗
+        ⌜mod_get l t = Some v⌝ ∗
+        t ↪[γmelt]□ v
+      )
+    else True)%I.
+
   Definition all_arrays_frag (γm γcur : gname) (ca : val) : iProp :=
-    ∃ (γmarr γmca : gname) (gcas : gmap gname val),
-    ⌜γm = encode (γmarr, γmca)⌝ ∗
+    ∃ (γmarr γmca γmelt : gname) (gcas : gmap gname val),
+    ⌜γm = encode (γmarr, γmca, γmelt)⌝ ∗
     γcur ↪[γmca]□ ca ∗
     [∗ map] γ ↦ caγ ∈ gcas,
       ⌜γ = γcur⌝ ∨
-      ∃ l, γ ↪[γmarr]□ l ∗ persistent_circle caγ l.
+      ∃ l t b, (
+        γ ↪[γmarr]□ (l, t, b) ∗
+        persistent_circle caγ l ∗
+        fixed_top γm l t b
+      ).
 
   Definition all_arrays_auth (γm γcur : gname) (ca : val) : iProp :=
-    ∃ (γmarr γmca : gname)
-      (garrs : gmap gname (list val)) (gcas : gmap gname val),
+    ∃ (γmarr γmca γmelt : gname)
+      (garrs : gmap gname (list val * nat * nat))
+      (gcas : gmap gname val) (gelts : gmap nat val),
     ghost_map_auth γmarr 1 garrs ∗ ghost_map_auth γmca 1 gcas ∗
+    ghost_map_auth γmelt 1 gelts ∗
     all_arrays_frag γm γcur ca.
+
+  Global Instance fixed_top_timeless γm l t b :
+    Timeless (fixed_top γm l t b).
+  Proof.
+    unfold Timeless, fixed_top. case_bool_decide; auto.
+    iIntros ">Q"; eauto.
+  Qed.
+
+  Global Instance fixed_top_persistent γm l t b :
+    Persistent (fixed_top γm l t b).
+  Proof. unfold Persistent, fixed_top. case_bool_decide; auto. Qed.
+
+  Global Instance all_arrays_frag_timeless γm γcur ca :
+    Timeless (all_arrays_frag γm γcur ca) := _.
 
   Global Instance all_arrays_frag_persistent γm γcur ca :
     Persistent (all_arrays_frag γm γcur ca).
   Proof.
     unfold Persistent, all_arrays_frag.
-    iIntros "(%γmarr & %γmca & %gcas & %Enc & #cur↪ & #big)".
-    iModIntro. iExists γmarr, γmca, gcas. iSplit; auto.
+    iIntros "(%γmarr & %γmca & %γmelts & %gcas & %Enc & #cur↪ & #big)".
+    iModIntro. iExists γmarr, γmca, γmelts, gcas. iSplit; auto.
   Qed.
 
-  Lemma all_arrays_frag_get_circle γm1 γcur1 ca1 γm2 γcur2 ca2 :
+  Lemma all_arrays_frag_get_circle γm γcur1 ca1 γcur2 ca2 :
     γcur1 ≠ γcur2 →
-    all_arrays_frag γm1 γcur1 ca1 -∗
-    all_arrays_frag γm2 γcur2 ca2 -∗
-    ∃ l1, persistent_circle ca1 l1.
+    all_arrays_frag γm γcur1 ca1 -∗
+    all_arrays_frag γm γcur2 ca2 -∗
+    ∃ l1 t1 b1, persistent_circle ca1 l1 ∗ fixed_top γm l1 t1 b1.
   Admitted.
 End all_arrays.
 
@@ -317,6 +199,8 @@ Section proof.
 
   Let circleN := N .@ "circle".
   Let dequeN := N .@ "deque".
+
+
 
   Definition deque_inv (γq γpop γm : gname) (A top bot : loc) : iProp :=
     ∃ (l : list val) (t b : nat),
@@ -337,10 +221,7 @@ Section proof.
       ) ∗
       (* logical data *)
       ( own γq (●E (circ_slice l t b)) ∗
-        ( ∃ (hl : list val),
-          True ∗ (*mono_deque_auth_own γmono hl t b ∗*)
-          True (*⌜t < b → hl !! t = mod_get l t⌝*)
-        )
+        fixed_top γm l t b
       ).
 
   Definition is_deque (γ : gname) (q : val) : iProp :=
@@ -389,8 +270,8 @@ Section proof.
     deque_content γ frag1 -∗ deque_content γ frag2 -∗ False.
   Proof.
     iIntros "C1 C2".
-      iDestruct "C1" as (γC γq γpop γm) "[%Enc C1]".
-      iDestruct "C2" as (γC' γq' γpop' γm') "[%Enc' C2]".
+      iDestruct "C1" as (γq γpop γm) "[%Enc C1]".
+      iDestruct "C2" as (γq' γpop' γm') "[%Enc' C2]".
       encode_agree Enc.
     by iDestruct (own_valid_2 with "C1 C2") as %?%auth_frag_op_valid_1.
   Qed.
@@ -822,13 +703,14 @@ Section proof.
     circle_content γcur l -∗
     all_arrays_frag γm γpast capast -∗
     all_arrays_frag γm γcur cacur -∗
-    let is_cur := bool_decide (γcur = γpast) in ∃ l',
+    let is_cur := bool_decide (γcur = γpast) in ∃ l' t' b',
       (if is_cur then circle_content γpast l'
         else persistent_circle capast l') ∗
-      (if is_cur then ⌜l = l'⌝ else circle_content γcur l).
+      (if is_cur then True else circle_content γcur l) ∗
+      (if is_cur then ⌜l = l'⌝ else fixed_top γm l' t' b').
   Proof.
     iIntros "C Past Cur". case_bool_decide; subst; iFrame.
-    - iExists l; iFrame. auto.
+    - iExists l; iFrame. iExists 0, 0. auto.
     - iDestruct (all_arrays_frag_get_circle with "Past Cur")
         as (l') "P"; auto.
   Qed.
@@ -872,6 +754,8 @@ Section proof.
     iInv "Inv" as (l3 t3 b3) "(>%Htb3 & Circle & top↦ & Bot & Log)".
       iDestruct "Circle" as (γC3 ca3) "(A↦ & #🌀3 & 🎯 & #📚3)". wp_load.
       iCombine "A↦ 🌀3 🎯 📚3" as "Circle".
+      iDestruct "Log" as "[Own #Fixt3]".
+      iCombine "Own Fixt3" as "Log".
     iModIntro. iSplitL "Circle top↦ Bot Log"; fr.
     wp_store.
 
@@ -897,11 +781,15 @@ Section proof.
       iDestruct "Circle" as (γC4 ca4) "(A↦ & #🌀4 & >🎯 & >#📚4)".
       iDestruct (stealable_resource γm γC4 l4 ca4 γC3 ca3
         with "[🎯] [] [📚4]")
-        as (l') "[SR1 SR2]"...
+        as (l' t' b') "(SR1 & SR2 & SR3)"...
+        assert (Persistent (if bool_decide (γC4 = γC3)
+          then ⌜l4 = l'⌝ else fixed_top γm l' t' b')%I) as HPER.
+          { case_bool_decide; apply _. }
+        iDestruct "SR3" as "#SR3". clear HPER.
       iAaccIntro with "SR1".
       { iIntros "SR1". iModIntro. iFrame. unfold deque_inv.
         fr. fr. fr. case_bool_decide...
-        iDestruct "SR2" as "%". by subst. }
+        iDestruct "SR3" as "%". by subst. }
     iIntros (v) "[%Hget1 SR1]". iModIntro.
     iSplitR "AU arr↦".
     { unfold deque_inv. fr. fr. fr. case_bool_decide...
@@ -911,9 +799,25 @@ Section proof.
     (* CAS *)
     wp_bind (CmpXchg _ _ _)%E.
     iInv "Inv" as (l5 t5 b5) "(>%Htb5 & Circle & top↦ & Bot & Log)".
-    destruct (decide (t1 = t5)) as [Hsuc|Hfail].
-    - (* success *)
-      subst t5. wp_cmpxchg_suc.
+    destruct (decide (t1 = t5)) as [Hsuc|Hfail]; last first.
+    { (* fail *)
+      wp_cmpxchg_fail. { intro Hneq. inversion Hneq... }
+      iMod "AU" as (lau) "[Cont [_ Commit]]".
+      iMod ("Commit" $! lau NONEV with "[Cont]") as "HΦ"...
+      iModIntro. iSplitL "Circle top↦ Bot Log"; fr.
+      wp_pures. iApply "HΦ"...
+    }
+    (* success *)
+    assert (t1 = t2) by admit; subst t2. assert (t1 < b2) by admit.
+    assert (t1 = t3) by admit; subst t3. assert (t1 < b3) by admit.
+    assert (t1 = t4) by admit; subst t4. assert (t1 < b4) by admit.
+    assert (t1 = t') by admit; subst t'. assert (t1 < b') by admit.
+    assert (t1 < b5) by admit.
+    subst t5. wp_cmpxchg_suc.
+    iMod "AU" as (lau) "[Cont [_ Commit]]".
+      unfold fixed_top. repeat (case_bool_decide; extended_auto). case_bool_decide... 
+      iDestruct "Fixt3" as "(%γmarr & %γmca & %γmelt & %vt3 & %Encm & %Hget3 & #TopElt3)".
+      iDestruct "Log" as "[● ()]".
   Admitted.
 End proof.
 
