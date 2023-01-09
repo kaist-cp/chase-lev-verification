@@ -60,10 +60,18 @@ Section proof.
 
   Definition circle_content (γ : gname) (l : list val) : iProp :=
     own γ (◯E l).
-  
+  Global Instance circle_content_timeless γ frag :
+    Timeless (circle_content γ frag).
+  Proof. unfold Timeless, circle_content. iIntros ">C". iFrame. Qed.
+    
   Definition persistent_circle (ca : val) (l : list val) : iProp :=
     ∃ (arr : loc),
     ⌜ca = (#arr, #(length l))%V⌝ ∗ arr ↦∗□ l.
+  Global Instance persistent_circle_persistent ca l :
+    Persistent (persistent_circle ca l).
+  Proof.
+    unfold Persistent, persistent_circle.
+  Admitted.
 
   Definition own_circle (ca : val) : iProp :=
     ∃ (arr : loc) (l : list val),
@@ -176,6 +184,9 @@ Program Definition atomic_circle `{!heapGS Σ, !circleG Σ} :
      spec_circle.pop_spec := pop_spec;
      spec_circle.steal_spec := steal_spec;
 *)
-     spec_circle.circle_content_exclusive := circle_content_exclusive |}.
+     spec_circle.circle_content_exclusive := circle_content_exclusive;
+     spec_circle.circle_content_timeless := circle_content_timeless;
+     (*spec_circle_persistent_circle_persistent :=
+       persistent_circle_persistent*) |}.
 
 Global Typeclasses Opaque circle_content is_circle.

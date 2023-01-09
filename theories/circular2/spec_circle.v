@@ -24,6 +24,7 @@ Record atomic_circle {Σ} `{!heapGS Σ} := AtomicCIRCLE {
   circle_content_timeless γ ls : Timeless (circle_content γ ls);
   circle_content_exclusive γ ls1 ls2 :
     circle_content γ ls1 -∗ circle_content γ ls2 -∗ False;
+  (*persistent_circle_persistent ca l : Persistent (persistent_circle ca l);*)
   (* -- operation specs -- *)
   new_circle_spec N n :
     0 < n →

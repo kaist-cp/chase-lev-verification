@@ -114,7 +114,8 @@ Class dequeG Σ := DequeG {
     deque_popG :> ghost_varG Σ bool;
     mono_listG :> mono_listG val Σ;
     mono_natG :> mono_natG Σ;
-    all_arraysG :> ghost_mapG Σ gname (list val)
+    gcasG :> ghost_mapG Σ gname val;
+    garrsG :> ghost_mapG Σ gname (list val)
   }.
 
 Definition dequeΣ : gFunctors :=
@@ -122,7 +123,8 @@ Definition dequeΣ : gFunctors :=
     ghost_varΣ bool;
     mono_listΣ val;
     mono_natΣ;
-    ghost_mapΣ gname (list val)
+    ghost_mapΣ gname (list val);
+    ghost_mapΣ gname val
   ].
 
 Global Instance subG_dequeΣ {Σ} : subG dequeΣ Σ → dequeG Σ.
@@ -274,20 +276,47 @@ Section monotone_ghost.
   Qed.
 End monotone_ghost.
 *)
+
+Section all_arrays.
+  Context `{!heapGS Σ, !dequeG Σ}.
+  Notation iProp := (iProp Σ).
+
+  Definition all_arrays_frag (γm γcur : gname) (ca : val) : iProp :=
+    ∃ (γmarr γmca : gname) (gcas : gmap gname val),
+    ⌜γm = encode (γmarr, γmca)⌝ ∗
+    γcur ↪[γmca]□ ca ∗
+    [∗ map] γ ↦ caγ ∈ gcas,
+      ⌜γ = γcur⌝ ∨
+      ∃ l, γ ↪[γmarr]□ l ∗ persistent_circle caγ l.
+
+  Definition all_arrays_auth (γm γcur : gname) (ca : val) : iProp :=
+    ∃ (γmarr γmca : gname)
+      (garrs : gmap gname (list val)) (gcas : gmap gname val),
+    ghost_map_auth γmarr 1 garrs ∗ ghost_map_auth γmca 1 gcas ∗
+    all_arrays_frag γm γcur ca.
+
+  Global Instance all_arrays_frag_persistent γm γcur ca :
+    Persistent (all_arrays_frag γm γcur ca).
+  Proof.
+    unfold Persistent, all_arrays_frag.
+    iIntros "(%γmarr & %γmca & %gcas & %Enc & #cur↪ & #big)".
+    iModIntro. iExists γmarr, γmca, gcas. iSplit; auto.
+  Qed.
+
+  Lemma all_arrays_frag_get_circle γm1 γcur1 ca1 γm2 γcur2 ca2 :
+    γcur1 ≠ γcur2 →
+    all_arrays_frag γm1 γcur1 ca1 -∗
+    all_arrays_frag γm2 γcur2 ca2 -∗
+    ∃ l1, persistent_circle ca1 l1.
+  Admitted.
+End all_arrays.
+
 Section proof.
   Context `{!heapGS Σ, !dequeG Σ, !circleG Σ} (N : namespace).
   Notation iProp := (iProp Σ).
 
   Let circleN := N .@ "circle".
   Let dequeN := N .@ "deque".
-
-  Definition all_arrays (γm γcur : gname) : iProp :=
-    ∃ (garrs : gmap gname (list val)),
-    ⌜γcur ∈ dom garrs⌝ ∗
-    ghost_map_auth γm 1 garrs ∗
-    [∗ map] γ ↦ l ∈ garrs,
-      ⌜γ = γcur⌝ ∨ circle_content γ l.
-      (* TODO: it should be circle_persistent_content! *)
 
   Definition deque_inv (γq γpop γm : gname) (A top bot : loc) : iProp :=
     ∃ (l : list val) (t b : nat),
@@ -296,7 +325,7 @@ Section proof.
       ( ∃ (γC : gname) (ca : val),
         A ↦{#1/2} ca ∗ 
         is_circle circleN γC ca ∗ circle_content γC l ∗
-        all_arrays γm γC
+        all_arrays_frag γm γC ca
       ) ∗
       (* top *)
       top ↦ #t ∗
@@ -326,6 +355,9 @@ Section proof.
     ∃ (γq γpop γm : gname),
       ⌜γ = encode (γq, γpop, γm)⌝ ∗
       own γq (◯E frag).
+  Global Instance deque_content_timeless γ frag :
+    Timeless (deque_content γ frag).
+  Proof. unfold Timeless, deque_content. iIntros ">D". iFrame. Qed.
 
   (* owner of the deque who can call push and pop *)
   Definition own_deque (γ : gname) (q : val) : iProp :=
@@ -333,7 +365,7 @@ Section proof.
       ⌜γ = encode (γq, γpop, γm)⌝ ∗
       ⌜q = (#A, #top, #bot)%V⌝ ∗
       (* own circle *)
-      A ↦{#1/2} ca ∗ own_circle ca ∗
+      A ↦{#1/2} ca ∗ own_circle ca ∗ all_arrays_auth γm γ ca ∗
       (* own bottom *)
       bot ↦{#1/2} #b ∗ ghost_var γpop (1/2) false.
   
@@ -379,6 +411,7 @@ Section proof.
     - by iFrame.
   Qed.
 
+(*
   Lemma new_deque_spec n :
     0 < n →
     {{{ True }}}
@@ -412,7 +445,7 @@ Section proof.
     iApply "HΦ". iModIntro. iSplitL "Inv"; first fr.
     iSplitL "γq◯"; first fr. fr. fr. instantiate (1:=1)...
   Qed.
-(*
+
   Lemma push_spec γ q (v : val) :
     is_deque γ q -∗
     own_deque γ q -∗
@@ -784,6 +817,22 @@ Section proof.
       wp_pures. iApply "Φ". iExists _,_,_, l. fr.
   Qed.
 *)
+
+  Lemma stealable_resource γm γcur l cacur γpast capast :
+    circle_content γcur l -∗
+    all_arrays_frag γm γpast capast -∗
+    all_arrays_frag γm γcur cacur -∗
+    let is_cur := bool_decide (γcur = γpast) in ∃ l',
+      (if is_cur then circle_content γpast l'
+        else persistent_circle capast l') ∗
+      (if is_cur then ⌜l = l'⌝ else circle_content γcur l).
+  Proof.
+    iIntros "C Past Cur". case_bool_decide; subst; iFrame.
+    - iExists l; iFrame. auto.
+    - iDestruct (all_arrays_frag_get_circle with "Past Cur")
+        as (l') "P"; auto.
+  Qed.
+
   Lemma steal_spec γ q :
     is_deque γ q -∗
     <<< ∀∀ l : list val, deque_content γ l >>>
@@ -821,8 +870,8 @@ Section proof.
     wp_alloc arr as "arr↦". wp_pures.
     wp_bind (! _)%E.
     iInv "Inv" as (l3 t3 b3) "(>%Htb3 & Circle & top↦ & Bot & Log)".
-      iDestruct "Circle" as (γC3 ca3) "(A↦ & #🌀3 & 🎯 & 📚)". wp_load.
-      iCombine "A↦ 🌀3 🎯 📚" as "Circle".
+      iDestruct "Circle" as (γC3 ca3) "(A↦ & #🌀3 & 🎯 & #📚3)". wp_load.
+      iCombine "A↦ 🌀3 🎯 📚3" as "Circle".
     iModIntro. iSplitL "Circle top↦ Bot Log"; fr.
     wp_store.
 
@@ -845,11 +894,26 @@ Section proof.
     wp_load. wp_bind (get_circle _ _)%E.
     awp_apply get_circle_spec...
     iInv "Inv" as (l4 t4 b4) "(>%Htb4 & Circle & top↦ & Bot & Log)".
-      iDestruct "Circle" as (γC4 ca4) "(A↦ & #🌀4 & 🎯 & 📚)".
-      destruct (decide (γC3 = γC4)).
-      - subst γC4.
-        unfold circle_content. iDestruct "🎯" as ">🎯".
-        iAaccIntro with "[🎯]".
+      iDestruct "Circle" as (γC4 ca4) "(A↦ & #🌀4 & >🎯 & >#📚4)".
+      iDestruct (stealable_resource γm γC4 l4 ca4 γC3 ca3
+        with "[🎯] [] [📚4]")
+        as (l') "[SR1 SR2]"...
+      iAaccIntro with "SR1".
+      { iIntros "SR1". iModIntro. iFrame. unfold deque_inv.
+        fr. fr. fr. case_bool_decide...
+        iDestruct "SR2" as "%". by subst. }
+    iIntros (v) "[%Hget1 SR1]". iModIntro.
+    iSplitR "AU arr↦".
+    { unfold deque_inv. fr. fr. fr. case_bool_decide...
+      iDestruct "SR2" as "%". by subst. }
+    iIntros "_". wp_pures.
+
+    (* CAS *)
+    wp_bind (CmpXchg _ _ _)%E.
+    iInv "Inv" as (l5 t5 b5) "(>%Htb5 & Circle & top↦ & Bot & Log)".
+    destruct (decide (t1 = t5)) as [Hsuc|Hfail].
+    - (* success *)
+      subst t5. wp_cmpxchg_suc.
   Admitted.
 End proof.
 
