@@ -143,6 +143,10 @@ Section some.
   (l : list val) (t b : nat) : iProp.
     Admitted.
 
+  Definition some_archived (γm γcur : gname) (ca : val)
+  (l : list val) (t b : nat) : iProp.
+    Admitted.
+
   Definition some_auth (γm γcur : gname) (ca : val)
   (l : list val) (t b : nat) : iProp.
     Admitted.
@@ -153,6 +157,14 @@ Section some.
 
   Global Instance some_frag_persistent γm γcur ca l t b :
     Persistent (some_frag γm γcur ca l t b).
+  Admitted.
+
+  Global Instance some_archived_timeless γm γcur ca l t b :
+    Timeless (some_archived γm γcur ca l t b).
+  Admitted.
+
+  Global Instance some_archived_persistent γm γcur ca l t b :
+    Persistent (some_archived γm γcur ca l t b).
   Admitted.
 
   Global Instance some_auth_timeless γm γcur ca l t b :
@@ -171,12 +183,12 @@ Section some.
   Proof.
   Admitted.
 
-  Lemma some_get_circle γm γ1 ca1 l1 t1 b1 γ2 ca2 l2 t2 b2 :
+  Lemma some_get_archived γm γ1 ca1 l1 t1 b1 γ2 ca2 l2 t2 b2 :
     (* γ1 is later than γ2 *)
     γ1 ≠ γ2 →
     some_auth γm γ1 ca1 l1 t1 b1 -∗
     some_frag γm γ2 ca2 l2 t2 b2 -∗
-    persistent_circle ca2 l2.
+    ∃ l' t' b', some_archived γm γ2 ca2 l' t' b'.
   Proof.
   Admitted.
 
@@ -188,6 +200,28 @@ Section some.
       (t2 = t1 ∧ t2 < b2) →
       (t1 < b1 ∧ mod_get l2 t2 = mod_get l1 t1)
     )⌝.
+  Proof.
+  Admitted.
+
+  Lemma some_archived_get_frag γm γcur ca l t b :
+    some_archived γm γcur ca l t b -∗
+    some_frag γm γcur ca l t b.
+  Proof.
+  Admitted.
+
+  Lemma some_archived_get_lb γm γcur ca l1 t1 b1 l2 t2 b2 :
+    some_archived γm γcur ca l1 t1 b1 -∗
+    some_frag γm γcur ca l2 t2 b2 -∗
+    ⌜t2 ≤ t1 ∧ (
+      (t2 = t1 ∧ t2 < b2) →
+      (t1 < b1 ∧ mod_get l2 t2 = mod_get l1 t1)
+    )⌝.
+  Proof.
+  Admitted.
+
+  Lemma some_archived_get_circle γm γcur ca l t b :
+    some_archived γm γcur ca l t b -∗
+    persistent_circle ca l.
   Proof.
   Admitted.
 
@@ -812,7 +846,58 @@ Section proof.
       iModIntro. iSplitL "Auth ● A Top Bot"; fr...
       wp_pures. iApply "HΦ"...
     - (* array was archived *)
-      Admitted.
+      iDestruct (some_get_archived with "Auth F3") as (l' t' b') "#Arch"...
+        iDestruct (some_archived_get_lb with "Arch F3") as "%Ht3'".
+        iDestruct (some_archived_get_frag with "Arch") as "F'".
+        iDestruct (some_archived_get_circle with "Arch") as "PC".
+      iAaccIntro with "[PC]".
+      { unfold tele_app.
+        instantiate (1:= {| tele_arg_head := l';
+          tele_arg_tail := {| tele_arg_head := false |}
+        |})... }
+        all: simpl. { instantiate (1:=()). fr. fr. }
+        simpl. iIntros (x) "[%Hx _]".
+        iCombine "A↦ 🎯4 📚" as "A".
+      iModIntro. iSplitL "Auth ● A Top Bot"; fr.
+      wp_pures.
+
+      (* 5. CAS *)
+      wp_bind (CmpXchg _ _ _)%E.
+      iInv "Inv" as (γ5 ca5 l5 t5 b5) "(>%Htb5 & >Auth & >● & A & >Top & >Bot)".
+        iDestruct (some_get_frag with "Auth") as "[Auth #F5]".
+        iDestruct (some_get_lb with "Auth F4") as "%Lb45".
+        iDestruct (some_get_lb with "Auth F'") as "%Lb'5".
+      destruct (decide (t1 = t5)); last first.
+      { (* fail *)
+        wp_cmpxchg_fail. { intro NO. inversion NO... }
+        iMod "AU" as (lau) "[Cont [_ Commit]]".
+        iMod ("Commit" $! lau NONEV with "[Cont]") as "HΦ"...
+        iModIntro. iSplitL "Auth ● A Top Bot"; fr.
+        wp_pures. iApply "HΦ"...
+      }
+      (* success *)
+      subst t5. wp_cmpxchg_suc.
+        replace (Z.of_nat t1 + 1)%Z with (Z.of_nat (S t1))...
+        assert (t1 = t2)... subst t2.
+        assert (t1 = t3)... subst t3. assert (t1 < b3) as Htb13...
+        assert (t1 = t4)... subst t4. assert (t1 < b4) as Htb14...
+        assert (t1 = t')... subst t'. assert (t1 < b') as Htb1'...
+        assert (t1 < b5) as Htb15...
+        assert (mod_get l5 t1 = Some x) as Hx5.
+        { replace (mod_get l5 t1) with (mod_get l' t1)...
+          apply Lb'5... }
+        iMod "AU" as (lau) "[Cont [_ Commit]]".
+          iDestruct "Cont" as (γq' γpop' γm') "[%Enc' ◯]".
+          encode_agree Enc.
+          iDestruct (own_ea_agree with "● ◯") as "%Hlau". subst lau.
+          iDestruct (some_frag_get_nonempty with "F5") as "%nonzero5".
+          rewrite (circ_slice_shrink_left _ _ _ x)...
+          iMod (own_ea_update (circ_slice l5 (S t1) b5) with "● ◯") as "[● ◯]".
+          iMod (some_auth_update with "Auth") as "Auth"...
+        iMod ("Commit" $! (circ_slice l5 (S t1) b5) (SOMEV x) with "[◯]") as "HΦ"; fr.
+      iModIntro. iSplitL "Auth ● A Top Bot"; fr...
+      wp_pures. iApply "HΦ"...
+  Qed.
 End proof.
 
 (*
