@@ -1,4 +1,5 @@
 From iris.algebra Require Import list excl_auth mono_nat.
+From iris.bi Require Import derived_laws_later.
 From iris.bi.lib Require Import fractional.
 From iris.base_logic.lib Require Import invariants ghost_var ghost_map mono_nat.
 From chase_lev Require Import atomic.
@@ -158,78 +159,136 @@ Section some.
 
   Definition some_frag (γm γcur : gname) (ca : val)
   (l : list val) (t b : nat) : iProp :=
-    ∃ (γall γarch γt γcont γtc : gname),
-      ⌜γm = encode (γall, γarch, γt)⌝ ∗
+    ∃ (γall γarch γelt γt γcont γtc : gname),
+      ⌜γm = encode (γall, γarch, γelt, γt)⌝ ∗
       ⌜γcur = encode (γcont, γtc)⌝ ∗
-      mono_nat_lb_own γtc (top_bot_state t b) ∗
-      mono_nat_lb_own γt (top_bot_state t b) ∗
+      (* gname-local and global mono nats *)
+      ( mono_nat_lb_own γt (top_bot_state t b) ∗
+        mono_nat_lb_own γtc (top_bot_state t b)
+      ) ∗
+      (* top element preservation *)
+      ( if (bool_decide (t < b))
+        then ∃ v, t ↪[γelt]□ v ∧ ⌜mod_get l t = Some v⌝
+        else True
+      ) ∗
+      (* array archive *)
       γcur ↪[γall]□ ca.
 
   Definition some_archived (γm γcur : gname) (ca : val)
   (l : list val) (t b : nat) : iProp :=
-    ∃ (γall γarch γt γcont γtc : gname),
-      ⌜γm = encode (γall, γarch, γt)⌝ ∗
+    ∃ (γall γarch γelt γt γcont γtc : gname),
+      ⌜γm = encode (γall, γarch, γelt, γt)⌝ ∗
       ⌜γcur = encode (γcont, γtc)⌝ ∗
-      γcur ↪[γarch]□ (ca, l, t, b) ∗
-      γcur ↪[γall]□ ca ∗
-      own γtc (●MN{DfracDiscarded} (top_bot_state t b)) ∗
-      mono_nat_lb_own γt (top_bot_state t b) ∗
-      persistent_circle ca l.
+      (* gname-local and global mono nats *)
+      ( mono_nat_lb_own γt (top_bot_state t b) ∗
+        own γtc (●MN{DfracDiscarded} (top_bot_state t b))
+      ) ∗
+      (* top element preservation *)
+      ( if (bool_decide (t < b))
+        then ∃ v, t ↪[γelt]□ v ∧ ⌜mod_get l t = Some v⌝
+        else True
+      ) ∗
+      (* array archive *)
+      ( γcur ↪[γall]□ ca ∗
+        γcur ↪[γarch]□ (ca, l, t, b) ∗
+        persistent_circle ca l
+      ).
 
   Definition some_auth (γm γcur : gname) (ca : val)
   (l : list val) (t b : nat) : iProp :=
-    ∃ (γall γarch γt γcont γtc : gname)
+    ∃ (γall γarch γelt γt γcont γtc : gname)
     (allγ : gmap gname val)
+    (elts : gmap nat val)
     (archive : gmap gname (val * list val * nat * nat)),
-      ⌜γm = encode (γall, γarch, γt)⌝ ∗
+      ⌜γm = encode (γall, γarch, γelt, γt)⌝ ∗
       ⌜γcur = encode (γcont, γtc)⌝ ∗
-      ghost_map_auth γall 1 allγ ∗
-      ghost_map_auth γarch 1 archive ∗
-      mono_nat_auth_own γt 1 (top_bot_state t b) ∗
-      γcur ↪[γall]□ ca ∗
-      mono_nat_auth_own γtc 1 (top_bot_state t b) ∗
-      [∗ map] γ ↦ ca' ∈ allγ, ⌜γ = γcur⌝ ∨ (
-        ∃ l' t' b',
-        some_archived γm γ ca' l' t' b'
+      (* map ownership *)
+      ( ghost_map_auth γall 1 allγ ∗
+        ghost_map_auth γelt 1 elts ∗
+        ghost_map_auth γarch 1 archive
+      ) ∗
+      (* gname-local and global mono nats *)
+      ( mono_nat_auth_own γt 1 (top_bot_state t b) ∗
+        mono_nat_auth_own γtc 1 (top_bot_state t b)
+      ) ∗
+      (* top element preservation *)
+      ( ⌜∀ i, t < i → elts !! i = None⌝ ∗
+        if (bool_decide (t < b))
+        then ∃ v, t ↪[γelt]□ v ∧ ⌜mod_get l t = Some v⌝
+        else True
+      ) ∗
+      (* array archive *)
+      ( γcur ↪[γall]□ ca ∗
+        [∗ map] γ ↦ ca' ∈ allγ, ⌜γ = γcur⌝ ∨ (
+          ∃ l' t' b',
+          some_archived γm γ ca' l' t' b'
+        )
       ).
+
+  (* Timeless & Persistent *)
     
   Global Instance some_frag_timeless γm γcur ca l t b :
-    Timeless (some_frag γm γcur ca l t b) := _.
+    Timeless (some_frag γm γcur ca l t b).
+  Proof. unfold some_frag. case_bool_decide; apply _. Qed.
 
   Global Instance some_frag_persistent γm γcur ca l t b :
-    Persistent (some_frag γm γcur ca l t b) := _.
-
+    Persistent (some_frag γm γcur ca l t b).
+  Proof. unfold some_frag. case_bool_decide; apply _. Qed.
+  
   Global Instance some_archived_timeless γm γcur ca l t b :
-    Timeless (some_archived γm γcur ca l t b). Admitted.
+    Timeless (some_archived γm γcur ca l t b).
+  Proof.
+    unfold some_archived. case_bool_decide.
+    all: repeat (apply bi.exist_timeless; intros).
+    all: apply _.
+  Qed.
 
   Global Instance some_archived_persistent γm γcur ca l t b :
-    Persistent (some_archived γm γcur ca l t b). Admitted.
+    Persistent (some_archived γm γcur ca l t b).
+  Proof.
+    unfold some_archived. case_bool_decide.
+    all: repeat (apply bi.exist_persistent; intros).
+    all: apply _.
+  Qed.
 
   Global Instance some_auth_timeless γm γcur ca l t b :
-    Timeless (some_auth γm γcur ca l t b) := _.
+    Timeless (some_auth γm γcur ca l t b).
+  Proof.
+    unfold some_auth. case_bool_decide.
+    all: repeat (apply bi.exist_timeless; intros).
+    all: apply _.
+  Qed.
   
   Lemma top_bot_state_le t1 b1 t2 b2 :
-    top_bot_state t1 b1 ≤ top_bot_state t2 b2 →
+    top_bot_state t1 b1 ≤ top_bot_state t2 b2 ↔
     t1 ≤ t2 ∧ (t1 = t2 ∧ t1 < b1 → t2 < b2).
   Proof. unfold top_bot_state. do 2 case_bool_decide; lia. Qed.
 
-  Lemma some_auth_alloc (γcont : gname) ca l t b :
+  Lemma some_auth_alloc (γcont : gname) ca l t :
     ⊢ |==> ∃ (γm γtc : gname),
-      some_auth γm (encode (γcont, γtc)) ca l t b.
+      some_auth γm (encode (γcont, γtc)) ca l t t.
   Proof.
-    unfold some_auth.
-    iMod (ghost_map_alloc
-      (∅ : gmap gname (val * list val * nat * nat))
-      ) as (γarch) "[Arch _]".
-    iMod (mono_nat_own_alloc (top_bot_state t b)) as (γt) "[mono _]".
-    iMod (mono_nat_own_alloc (top_bot_state t b)) as (γtc) "[monoc _]".
+    (* gname-local and global mono nats *)
+    iMod (mono_nat_own_alloc (top_bot_state t t)) as (γt) "[mono _]".
+    iMod (mono_nat_own_alloc (top_bot_state t t)) as (γtc) "[monoc _]".
+
+    (* map ownership *)
     iMod (ghost_map_alloc (
       <[encode (γcont, γtc):=ca]> (∅ : gmap gname val))
       ) as (γall) "[All cur↪]".
       rewrite big_sepM_singleton.
       iMod (ghost_map_elem_persist with "cur↪") as "#cur↪".
-    iExists (encode (γall, γarch, γt)).
-    iExists γtc, γall, γarch, γt, γcont, γtc, (<[encode (γcont, γtc):=ca]> ∅), ∅.
+    iMod (ghost_map_alloc
+      (∅ : gmap nat val)
+    ) as (γelt) "[Elts _]".
+    iMod (ghost_map_alloc
+      (∅ : gmap gname (val * list val * nat * nat))
+    ) as (γarch) "[Arch _]".
+
+    iExists (encode (γall, γarch, γelt, γt)), γtc.
+    iExists γall, γarch, γelt, γt, γcont, γtc.
+    iExists (<[encode (γcont, γtc):=ca]> ∅), ∅, ∅.
+    case_bool_decide; try lia.
     iModIntro. fr. fr. rewrite big_sepM_singleton. fr.
   Qed.
 
@@ -238,8 +297,12 @@ Section some.
     some_frag γm γcur ca l t b.
   Proof.
     iIntros "Auth".
-      iDestruct "Auth" as (γall γarch γt γcont γtc allγ archive) "Auth".
-      iDestruct "Auth" as "(%Enc & %Encur & All & Arch & mono & #cur↪ & monoc & archs)".
+      iDestruct "Auth" as (γall γarch γelt γt γcont γtc) "Auth".
+      iDestruct "Auth" as (allγ elts archive) "Auth".
+      iDestruct "Auth" as "(%Enc & %Encur & Map & Mono & Elt & Ca)".
+      iDestruct "Mono" as "[mono monoc]".
+      iDestruct "Elt" as "[%NoElt Elt]".
+      iDestruct "Ca" as "[↪ arch]".
     iDestruct (mono_nat_lb_own_get with "mono") as "#lb".
     iDestruct (mono_nat_lb_own_get with "monoc") as "#lbc".
     fr.
@@ -252,18 +315,20 @@ Section some.
     some_frag γm γ2 ca2 l2 t2 b2 -∗
     ∃ l' t' b', some_archived γm γ2 ca2 l' t' b'.
   Proof.
-    iIntros (Hneq) "Auth".
-      iDestruct "Auth" as (γall γarch γt γcont γtc allγ archive) "Auth".
-      iDestruct "Auth" as "(%Enc & %Encur & All & Arch & mono & #cur↪ & monoc & archs)".
+    intros Hneq.
+    iIntros "Auth".
+      iDestruct "Auth" as (γall γarch γelt γt γcont γtc) "Auth".
+      iDestruct "Auth" as (allγ elts archive) "Auth".
+      iDestruct "Auth" as "(%Enc & %Encur & Map & Mono & Elt & Ca)".
     iIntros "Frag".
-      iDestruct "Frag" as (γall' γarch' γt' γcont' γtc') "Frag".
-      iDestruct "Frag" as "(%Enc' & %Encur2 & #lbc & #lb & #c2↪)".
+      iDestruct "Frag" as (γall' γarch' γelt' γt' γcont' γtc') "Frag".
+      iDestruct "Frag" as "(%Enc' & %Encur' & Mono' & Elt' & Ca')".
       encode_agree Enc.
-    iDestruct (ghost_map_lookup with "All c2↪") as "%Hγ2".
-    iDestruct (big_sepM_lookup with "archs") as "sa"; first fr.
-    iDestruct "sa" as "[%sa|sa]"; first lia.
-    iDestruct "sa" as (l' t' b') "sa".
-    iExists l', t', b'. iFrame.
+    iDestruct "Map" as "(MapAll & MapElt & MapArch)".
+      iDestruct (ghost_map_lookup with "MapAll Ca'") as "%Hγ2".
+    iDestruct "Ca" as "[↪ arch]".
+      iDestruct (big_sepM_lookup with "arch") as "sa"; eauto.
+      iDestruct "sa" as "[%sa|sa]"; fr.
   Qed.
 
   Lemma some_get_lb γm γ1 ca1 l1 t1 b1 γ2 ca2 l2 t2 b2 :
@@ -276,24 +341,38 @@ Section some.
     )⌝.
   Proof.
     iIntros "Auth".
-      iDestruct "Auth" as (γall γarch γt γcont γtc allγ archive) "Auth".
-      iDestruct "Auth" as "(%Enc & %Encur & All & Arch & mono & #cur↪ & monoc & archs)".
+      iDestruct "Auth" as (γall γarch γelt γt γcont γtc) "Auth".
+      iDestruct "Auth" as (allγ elts archive) "Auth".
+      iDestruct "Auth" as "(%Enc & %Encur & Map & Mono & Elt & Ca)".
     iIntros "Frag".
-      iDestruct "Frag" as (γall' γarch' γt' γcont' γtc') "Frag".
-      iDestruct "Frag" as "(%Enc' & %Encur2 & #lbc & #lb & #c2↪)".
+      iDestruct "Frag" as (γall' γarch' γelt' γt' γcont' γtc') "Frag".
+      iDestruct "Frag" as "(%Enc' & %Encur' & Mono' & Elt' & Ca')".
       encode_agree Enc.
-    iDestruct (mono_nat_lb_own_valid with "mono lb") as "[_ %Hle]".
+    iDestruct "Mono" as "[mono monoc]".
+      iDestruct "Mono'" as "[lb lbc]".
+      iDestruct (mono_nat_lb_own_valid with "mono lb") as "[_ %Hle]".
     apply top_bot_state_le in Hle as [Hle1 Hle2].
     iSplit. { iPureIntro; lia. }
-  Admitted.
+    (* agreement proof *)
+    iIntros ([-> Hlt2]).
+    iSplit. { iPureIntro; lia. }
+    do 2 case_bool_decide; try lia.
+      iDestruct "Elt" as "[%NoElt Elt]".
+      iDestruct "Elt" as (v1) "[Elt1 %Hget1]".
+      iDestruct "Elt'" as (v2) "[Elt2 %Hget2]".
+      iDestruct (ghost_map_elem_agree with "Elt1 Elt2") as "%". subst v2.
+    iPureIntro. by rewrite Hget1 Hget2.
+  Qed.
 
   Lemma some_archived_get_frag γm γcur ca l t b :
     some_archived γm γcur ca l t b -∗
     some_frag γm γcur ca l t b.
   Proof.
-    iIntros "#Arched".
-      iDestruct "Arched" as (γall γarch γt γcont γtc) "Arched".
-      iDestruct "Arched" as "(%Enc & %Encur & ↪arch & ↪all & monoc & mono & PC)".
+    iIntros "Arch".
+      iDestruct "Arch" as (γall γarch γelt γt γcont γtc) "Arch".
+      iDestruct "Arch" as "(%Enc & %Encur & Mono & Elt & Ca)".
+      iDestruct "Mono" as "[mono monoc]".
+      iDestruct "Ca" as "[↪ Ca]".
     fr. fr.
   Admitted.
 
@@ -305,23 +384,37 @@ Section some.
       (t1 < b1 ∧ mod_get l2 t2 = mod_get l1 t1)
     )⌝.
   Proof.
-    iIntros "#Arched".
-      iDestruct "Arched" as (γall γarch γt γcont γtc) "Arched".
-      iDestruct "Arched" as "(%Enc & %Encur & ↪arch & ↪all & monoc & mono & PC)".
+    iIntros "Arch".
+      iDestruct "Arch" as (γall γarch γelt γt γcont γtc) "Arch".
+      iDestruct "Arch" as "(%Enc & %Encur & Mono & Elt & Ca)".
     iIntros "Frag".
-      iDestruct "Frag" as (γall' γarch' γt' γcont' γtc') "Frag".
-      iDestruct "Frag" as "(%Enc' & %Encur2 & #lbc & #lb & #c2↪)".
+      iDestruct "Frag" as (γall' γarch' γelt' γt' γcont' γtc') "Frag".
+      iDestruct "Frag" as "(%Enc' & %Encur' & Mono' & Elt' & Ca')".
       encode_agree Encur. encode_agree Enc.
+    iDestruct "Mono" as "[mono monoc]".
+      iDestruct "Mono'" as "[lb lbc]".
+      assert (top_bot_state t2 b2 ≤ top_bot_state t1 b1) as Hle by admit.
+      (*iDestruct (mono_nat_lb_own_valid with "monoc lbc") as "[_ %Hle]".*)
+    apply top_bot_state_le in Hle as [Hle1 Hle2].
+    iSplit. { iPureIntro; lia. }
+    (* agreement proof *)
+    iIntros ([-> Hlt2]).
+    iSplit. { iPureIntro; lia. }
+    do 2 case_bool_decide; try lia.
+      iDestruct "Elt" as (v1) "[Elt1 %Hget1]".
+      iDestruct "Elt'" as (v2) "[Elt2 %Hget2]".
+      iDestruct (ghost_map_elem_agree with "Elt1 Elt2") as "%". subst v2.
+    iPureIntro. by rewrite Hget1 Hget2.
   Admitted.
 
   Lemma some_archived_get_circle γm γcur ca l t b :
     some_archived γm γcur ca l t b -∗
     persistent_circle ca l.
   Proof.
-    iIntros "#Arched".
-      iDestruct "Arched" as (γall γarch γt γcont γtc) "Arched".
-      iDestruct "Arched" as "(%Enc & %Encur & ↪arch & ↪all & monoc & mono & PC)".
-    auto.
+    iIntros "Arch".
+      iDestruct "Arch" as (γall γarch γelt γt γcont γtc) "Arch".
+      iDestruct "Arch" as "(%Enc & %Encur & Mono & Elt & Ca)".
+    by iDestruct "Ca" as "(↪all & ↪arch & PC)".
   Qed.
 
   Lemma some_auth_update γm γ ca l t b :
@@ -329,13 +422,71 @@ Section some.
     some_auth γm γ ca l t b ==∗
     some_auth γm γ ca l (S t) b.
   Proof.
+    intros Htb.
+    iIntros "Auth".
+      iDestruct "Auth" as (γall γarch γelt γt γcont γtc) "Auth".
+      iDestruct "Auth" as (allγ elts archive) "Auth".
+      iDestruct "Auth" as "(%Enc & %Encur & Map & Mono & Elt & Ca)".
+    iExists γall, γarch, γelt, γt, γcont, γtc.
+
+    (* update mono *)
+    iDestruct "Mono" as "[mono monoc]".
+      iMod (mono_nat_own_update
+        (top_bot_state (S t) b) with "mono") as "[mono _]".
+      { apply top_bot_state_le. lia. }
+      iMod (mono_nat_own_update
+        (top_bot_state (S t) b) with "monoc") as "[monoc _]".
+      { apply top_bot_state_le. lia. }
+
+    (* update top elt *)
+    case_bool_decide; try lia.
+    case_bool_decide.
+    - iDestruct "Map" as "(MapAll & MapElt & MapArch)".
+      iDestruct "Elt" as "[%NoElt Elt]".
+      destruct (mod_get_is_Some l (S t)) as [v' QWE]. 1:admit.
+      iMod (ghost_map_insert (S t) v' with "MapElt") as "[MapElt ↪S]".
+      { apply NoElt. lia. }
+      iMod (ghost_map_elem_persist with "↪S") as "#↪S".
+      iModIntro. fr. fr.
+      iPureIntro; intros i Sti.
+      rewrite lookup_insert_ne; try lia. apply NoElt. lia.
+    - iDestruct "Map" as "(MapAll & MapElt & MapArch)".
+      iDestruct "Elt" as "[%NoElt Elt]".
+      iModIntro. fr. fr.
+      iPureIntro; intros i Sti. apply NoElt. lia.
   Admitted.
 
   Lemma some_auth_archive γm γ ca l t b :
+    own_circle ca -∗
     some_auth γm γ ca l t b ==∗
+    some_archived γm γ ca l t b.
+    (*
     ∃ γ',
       some_auth γm γ' ca l t b ∗ some_archived γm γ ca l t b.
+      *)
   Proof.
+    iIntros "Own".
+    iIntros "Auth".
+      iDestruct "Auth" as (γall γarch γelt γt γcont γtc) "Auth".
+      iDestruct "Auth" as (allγ elts archive) "Auth".
+      iDestruct "Auth" as "(%Enc & %Encur & Map & Mono & Elt & Ca)".
+      iDestruct "Elt" as "[NoElt Elt]".
+      iDestruct "Ca" as "[↪ arch]".
+
+    (* archive circle *)
+    iDestruct "Own" as (arr' l') "Own".
+    
+    (* archive γ *)
+    iDestruct "Map" as "(MapAll & MapElt & MapArch)".
+      iMod (ghost_map_insert γ (ca,l,t,b) with "MapArch") as "[Arch ↪arch]".
+      1: admit.
+      iMod (ghost_map_elem_persist with "↪arch") as "#↪arch".
+    iDestruct "Mono" as "[mono monoc]".
+      iDestruct (mono_nat_lb_own_get with "mono") as "#lb".
+
+    (* finish *)
+    iModIntro. fr. fr.
+    1: admit.
   Admitted.
 End some.
 
