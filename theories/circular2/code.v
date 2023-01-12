@@ -114,8 +114,8 @@ Class dequeG Σ := DequeG {
     deque_tokG :> inG Σ (excl_authR $ listO valO);
     deque_popG :> ghost_varG Σ bool;
     mono_natG :> mono_natG Σ;
-    garrsG :> ghost_mapG Σ gname (val * list val * nat * nat);
-    gcasG :> ghost_mapG Σ gname val;
+    garrsG :> ghost_mapG Σ (gname * gname) (list val * nat * nat);
+    gcasG :> ghost_mapG Σ (gname * gname) val;
     geltsG :> ghost_mapG Σ nat val;
     archiveG :> inG Σ mono_natR
   }.
@@ -124,8 +124,8 @@ Definition dequeΣ : gFunctors :=
   #[GFunctor (excl_authR $ listO valO);
     ghost_varΣ bool;
     mono_natΣ;
-    ghost_mapΣ gname (val * list val * nat * nat);
-    ghost_mapΣ gname val;
+    ghost_mapΣ (gname * gname) (list val * nat * nat);
+    ghost_mapΣ (gname * gname) val;
     ghost_mapΣ nat val;
     GFunctor mono_natR
   ].
@@ -157,42 +157,43 @@ Section some.
   Definition top_bot_state (t b : nat) : nat :=
     2*t + (if bool_decide (t < b) then 1 else 0).
 
-  Definition some_frag (γm γcur : gname) (ca : val)
-  (l : list val) (t b : nat) : iProp :=
-    ∃ (γall γarch γelt γt : gname),
-      ⌜γm = encode (γall, γarch, γelt, γt)⌝ ∗
+  Definition some_frag (γglob : gname*gname*gname*gname) (γcur : gname*gname)
+  (ca : val) (l : list val) (t b : nat) : iProp :=
+    let (γ', γt) := γglob in let (γ'', γelt) := γ' in let (γall, γarch) := γ'' in
+    let (γcont, γtc) := γcur in
       ⌜length l ≠ 0⌝ ∗
       (* gname-local and global mono nats *)
       ( mono_nat_lb_own γt (top_bot_state t b) ∗
-        mono_nat_lb_own γcur (top_bot_state t b)
+        mono_nat_lb_own γtc (top_bot_state t b)
       ) ∗
       (* top element preservation *)
       (⌜b ≤ t⌝ ∨ (∃ x, t ↪[γelt]□ x ∗ ⌜mod_get l t = Some x⌝)) ∗
       (* array archive *)
       γcur ↪[γall]□ ca.
 
-  Definition some_archived (γall γarch γelt γt γcur : gname) (ca : val)
-  (l : list val) (t b : nat) : iProp :=
+  Definition some_archived (γglob : gname*gname*gname*gname) (γcur : gname*gname)
+  (ca : val) (l : list val) (t b : nat) : iProp :=
+    let (γ', γt) := γglob in let (γ'', γelt) := γ' in let (γall, γarch) := γ'' in
+    let (γcont, γtc) := γcur in
       ⌜length l ≠ 0⌝ ∗
       (* gname-local and global mono nats *)
       ( mono_nat_lb_own γt (top_bot_state t b) ∗
-        mono_nat_persistent γcur (top_bot_state t b)
+        mono_nat_persistent γtc (top_bot_state t b)
       ) ∗
       (* top element preservation *)
       (⌜b ≤ t⌝ ∨ (∃ x, t ↪[γelt]□ x ∗ ⌜mod_get l t = Some x⌝)) ∗
       (* array archive *)
       ( γcur ↪[γall]□ ca ∗
-        γcur ↪[γarch]□ (ca, l, t, b) ∗
+        γcur ↪[γarch]□ (l, t, b) ∗
         persistent_circle ca l
       ).
 
-  Definition some_auth (γm γcur : gname) (ca : val)
-  (l : list val) (t b : nat) : iProp :=
-    ∃ (γall γarch γelt γt : gname)
-    (allγ : gmap gname val)
-    (elts : gmap nat val)
-    (archive : gmap gname (val * list val * nat * nat)),
-      ⌜γm = encode (γall, γarch, γelt, γt)⌝ ∗
+  Definition some_auth (γglob : gname*gname*gname*gname) (γcur : gname*gname)
+  (ca : val) (l : list val) (t b : nat) : iProp :=
+    let (γ', γt) := γglob in let (γ'', γelt) := γ' in let (γall, γarch) := γ'' in
+    let (γcont, γtc) := γcur in
+    ∃ (allγ : gmap (gname * gname) val) (elts : gmap nat val)
+    (archive : gmap (gname * gname) (list val * nat * nat)),
       ⌜length l ≠ 0⌝ ∗
       (* map ownership *)
       ( ghost_map_auth γall 1 allγ ∗
@@ -201,7 +202,7 @@ Section some.
       ) ∗
       (* gname-local and global mono nats *)
       ( mono_nat_auth_own γt 1 (top_bot_state t b) ∗
-        mono_nat_auth_own γcur 1 (top_bot_state t b)
+        mono_nat_auth_own γtc 1 (top_bot_state t b)
       ) ∗
       (* top element preservation *)
       ( ⌜∀ i, t < i → elts !! i = None⌝ ∗
@@ -211,46 +212,53 @@ Section some.
       ( γcur ↪[γall]□ ca ∗
         [∗ map] γ ↦ ca' ∈ allγ, ⌜γ = γcur⌝ ∨ (
           ∃ l' t' b',
-          some_archived γall γarch γelt γt γ ca' l' t' b'
+          some_archived γglob γ ca' l' t' b'
         )
       ).
 
   (* Timeless & Persistent *)
-    
-  Global Instance some_frag_timeless γm γcur ca l t b :
-    Timeless (some_frag γm γcur ca l t b) := _.
-
-  Global Instance some_frag_persistent γm γcur ca l t b :
-    Persistent (some_frag γm γcur ca l t b) := _.
+  Ltac desγ H1 H2 :=
+    destruct H1 as (((γall,γarch),γelt),γt); destruct H2 as (γcont,γtc).
   
-  Global Instance some_archived_timeless γall γarch γelt γt γcur ca l t b :
-    Timeless (some_archived γall γarch γelt γt γcur ca l t b) := _.
+  Global Instance some_frag_timeless γglob γcur ca l t b :
+    Timeless (some_frag γglob γcur ca l t b).
+  Proof. desγ γglob γcur; apply _. Qed.
 
-  Global Instance some_archived_persistent γall γarch γelt γt γcur ca l t b :
-    Persistent (some_archived γall γarch γelt γt γcur ca l t b) := _.
+  Global Instance some_frag_persistent γglob γcur ca l t b :
+    Persistent (some_frag γglob γcur ca l t b).
+  Proof. desγ γglob γcur; apply _. Qed.
+  
+  Global Instance some_archived_timeless γglob γcur ca l t b :
+    Timeless (some_archived γglob γcur ca l t b).
+  Proof. desγ γglob γcur; apply _. Qed.
 
-  Global Instance some_auth_timeless γm γcur ca l t b :
-    Timeless (some_auth γm γcur ca l t b) := _.
+  Global Instance some_archived_persistent γglob γcur ca l t b :
+    Persistent (some_archived γglob γcur ca l t b).
+  Proof. desγ γglob γcur; apply _. Qed.
+
+  Global Instance some_auth_timeless γglob γcur ca l t b :
+    Timeless (some_auth γglob γcur ca l t b).
+  Proof. desγ γglob γcur; apply _. Qed.
   
   Lemma top_bot_state_le t1 b1 t2 b2 :
     top_bot_state t1 b1 ≤ top_bot_state t2 b2 ↔
     t1 ≤ t2 ∧ (t1 = t2 ∧ t1 < b1 → t2 < b2).
   Proof. unfold top_bot_state. do 2 case_bool_decide; lia. Qed.
 
-  Lemma some_auth_alloc ca l t :
+  Lemma some_auth_alloc γcont ca l t :
     length l ≠ 0 →
-    ⊢ |==> ∃ (γm γcur : gname),
-      some_auth γm γcur ca l t t.
+    ⊢ |==> ∃ (γglob : gname*gname*gname*gname) (γtc : gname),
+      some_auth γglob (γcont, γtc) ca l t t.
   Proof.
     intros Hlen.
 
     (* gname-local and global mono nats *)
     iMod (mono_nat_own_alloc (top_bot_state t t)) as (γt) "[mono _]".
-    iMod (mono_nat_own_alloc (top_bot_state t t)) as (γcur) "[monoc _]".
+    iMod (mono_nat_own_alloc (top_bot_state t t)) as (γtc) "[monoc _]".
 
     (* map ownership *)
     iMod (ghost_map_alloc (
-      <[γcur :=ca]> (∅ : gmap gname val))
+      <[(γcont, γtc) := ca]> (∅ : gmap (gname*gname) val))
       ) as (γall) "[All cur↪]".
       rewrite big_sepM_singleton.
       iMod (ghost_map_elem_persist with "cur↪") as "#cur↪".
@@ -258,32 +266,26 @@ Section some.
       (∅ : gmap nat val)
     ) as (γelt) "[Elts _]".
     iMod (ghost_map_alloc
-      (∅ : gmap gname (val * list val * nat * nat))
+      (∅ : gmap (gname*gname) (list val * nat * nat))
     ) as (γarch) "[Arch _]".
 
-    iExists (encode (γall, γarch, γelt, γt)), γcur.
-    iExists γall, γarch, γelt, γt.
-    iExists (<[γcur:=ca]> ∅), ∅, ∅.
+    iExists (γall, γarch, γelt, γt), γtc.
+    iExists (<[(γcont, γtc) := ca]> ∅), ∅, ∅.
     iModIntro. fr. fr. rewrite big_sepM_singleton. fr.
   Qed.
 
-  Lemma some_frag_get_nonzero γm γcur ca l t b :
-    some_frag γm γcur ca l t b -∗ ⌜length l ≠ 0⌝.
-  Proof.
-    iIntros "Frag".
-      iDestruct "Frag" as (γall γarch γelt γt) "Frag".
-      iDestruct "Frag" as "(%Enc & %Hlen & Mono & Elt & Ca)".
-    auto.
-  Qed.
+  Lemma some_frag_get_nonzero γglob γcur ca l t b :
+    some_frag γglob γcur ca l t b -∗ ⌜length l ≠ 0⌝.
+  Proof. desγ γglob γcur. iIntros "(%Hlen & Mono & Elt & Ca)". auto. Qed.
 
-  Lemma some_get_frag γm γcur ca l t b :
-    some_auth γm γcur ca l t b -∗
-    some_frag γm γcur ca l t b.
+  Lemma some_get_frag γglob γcur ca l t b :
+    some_auth γglob γcur ca l t b -∗
+    some_frag γglob γcur ca l t b.
   Proof.
+    desγ γglob γcur.
     iIntros "Auth".
-      iDestruct "Auth" as (γall γarch γelt γt) "Auth".
       iDestruct "Auth" as (allγ elts archive) "Auth".
-      iDestruct "Auth" as "(%Enc & %Hlen & Map & Mono & Elt & Ca)".
+      iDestruct "Auth" as "(%Hlen & Map & Mono & Elt & Ca)".
       iDestruct "Mono" as "[mono monoc]".
       iDestruct "Elt" as "[%NoElt Elt]".
       iDestruct "Ca" as "[↪ arch]".
@@ -292,22 +294,20 @@ Section some.
     fr.
   Qed.
 
-  Lemma some_get_archived γm γ1 ca1 l1 t1 b1 γ2 ca2 l2 t2 b2 :
+  Lemma some_get_archived γglob γ1 ca1 l1 t1 b1 γ2 ca2 l2 t2 b2 :
     (* γ1 is later than γ2 *)
     γ1 ≠ γ2 →
-    some_auth γm γ1 ca1 l1 t1 b1 -∗
-    some_frag γm γ2 ca2 l2 t2 b2 -∗
-    ∃ l' t' b', some_archived γm γ2 ca2 l' t' b'.
+    some_auth γglob γ1 ca1 l1 t1 b1 -∗
+    some_frag γglob γ2 ca2 l2 t2 b2 -∗
+    ∃ l' t' b', some_archived γglob γ2 ca2 l' t' b'.
   Proof.
+    desγ γglob γ1. destruct γ2 as (γcont', γtc').
     intros Hneq.
     iIntros "Auth".
-      iDestruct "Auth" as (γall γarch γelt γt) "Auth".
       iDestruct "Auth" as (allγ elts archive) "Auth".
-      iDestruct "Auth" as "(%Enc & %Hlen & Map & Mono & Elt & Ca)".
+      iDestruct "Auth" as "(%Hlen & Map & Mono & Elt & Ca)".
     iIntros "Frag".
-      iDestruct "Frag" as (γall' γarch' γelt' γt') "Frag".
-      iDestruct "Frag" as "(%Enc' & %Hlen' & Mono' & Elt' & Ca')".
-      encode_agree Enc.
+      iDestruct "Frag" as "(%Hlen' & Mono' & Elt' & Ca')".
     iDestruct "Map" as "(MapAll & MapElt & MapArch)".
       iDestruct (ghost_map_lookup with "MapAll Ca'") as "%Hγ2".
     iDestruct "Ca" as "[↪ arch]".
@@ -315,23 +315,21 @@ Section some.
       iDestruct "sa" as "[%sa|sa]"; fr.
   Qed.
 
-  Lemma some_get_lb γm γ1 ca1 l1 t1 b1 γ2 ca2 l2 t2 b2 :
+  Lemma some_get_lb γglob γ1 ca1 l1 t1 b1 γ2 ca2 l2 t2 b2 :
     (* γ1 is later than γ2 *)
-    some_auth γm γ1 ca1 l1 t1 b1 -∗
-    some_frag γm γ2 ca2 l2 t2 b2 -∗
+    some_auth γglob γ1 ca1 l1 t1 b1 -∗
+    some_frag γglob γ2 ca2 l2 t2 b2 -∗
     ⌜t2 ≤ t1 ∧ (
       (t2 = t1 ∧ t2 < b2) →
       (t1 < b1 ∧ mod_get l2 t2 = mod_get l1 t1)
     )⌝.
   Proof.
+    desγ γglob γ1. destruct γ2 as (γcont', γtc').
     iIntros "Auth".
-      iDestruct "Auth" as (γall γarch γelt γt) "Auth".
       iDestruct "Auth" as (allγ elts archive) "Auth".
-      iDestruct "Auth" as "(%Enc & %Hlen & Map & Mono & Elt & Ca)".
+      iDestruct "Auth" as "(%Hlen & Map & Mono & Elt & Ca)".
     iIntros "Frag".
-      iDestruct "Frag" as (γall' γarch' γelt' γt') "Frag".
-      iDestruct "Frag" as "(%Enc' & %Hlen' & Mono' & Elt' & Ca')".
-      encode_agree Enc.
+      iDestruct "Frag" as "(%Hlen' & Mono' & Elt' & Ca')".
     iDestruct "Mono" as "[mono monoc]".
       iDestruct "Mono'" as "[lb lbc]".
       iDestruct (mono_nat_lb_own_valid with "mono lb") as "[_ %Hle]".
@@ -348,34 +346,32 @@ Section some.
     iPureIntro. by rewrite Hget1 Hget2.
   Qed.
 
-  Lemma some_archived_get_frag γm γcur ca l t b :
-    some_archived γm γcur ca l t b -∗
-    some_frag γm γcur ca l t b.
+  Lemma some_archived_get_frag γglob γcur ca l t b :
+    some_archived γglob γcur ca l t b -∗
+    some_frag γglob γcur ca l t b.
   Proof.
+    desγ γglob γcur.
     iIntros "Arch".
-      iDestruct "Arch" as (γall γarch γelt γt) "Arch".
-      iDestruct "Arch" as "(%Enc & %Hlen & Mono & Elt & Ca)".
+      iDestruct "Arch" as "(%Hlen & Mono & Elt & Ca)".
       iDestruct "Mono" as "[mono monoc]".
       iDestruct "Ca" as "[↪ Ca]".
     fr. fr.
     by iDestruct (mono_nat_persistent_lb_own_get with "monoc") as "lb".
   Qed.
 
-  Lemma some_archived_get_lb γm γcur ca l1 t1 b1 l2 t2 b2 :
-    some_archived γm γcur ca l1 t1 b1 -∗
-    some_frag γm γcur ca l2 t2 b2 -∗
+  Lemma some_archived_get_lb γglob γcur ca l1 t1 b1 l2 t2 b2 :
+    some_archived γglob γcur ca l1 t1 b1 -∗
+    some_frag γglob γcur ca l2 t2 b2 -∗
     ⌜t2 ≤ t1 ∧ (
       (t2 = t1 ∧ t2 < b2) →
       (t1 < b1 ∧ mod_get l2 t2 = mod_get l1 t1)
     )⌝.
   Proof.
+    desγ γglob γcur.
     iIntros "Arch".
-      iDestruct "Arch" as (γall γarch γelt γt) "Arch".
-      iDestruct "Arch" as "(%Enc & %Hlen & Mono & Elt & Ca)".
+      iDestruct "Arch" as "(%Hlen & Mono & Elt & Ca)".
     iIntros "Frag".
-      iDestruct "Frag" as (γall' γarch' γelt' γt') "Frag".
-      iDestruct "Frag" as "(%Enc' & %Hlen' & Mono' & Elt' & Ca')".
-      encode_agree Enc.
+      iDestruct "Frag" as "(%Hlen' & Mono' & Elt' & Ca')".
     iDestruct "Mono" as "[mono monoc]".
       iDestruct "Mono'" as "[lb lbc]".
       iDestruct (mono_nat_persistent_lb_own_valid with "monoc lbc") as "%Hle".
@@ -390,27 +386,26 @@ Section some.
     iPureIntro. by rewrite Hget Hget'.
   Qed.
 
-  Lemma some_archived_get_circle γm γcur ca l t b :
-    some_archived γm γcur ca l t b -∗
+  Lemma some_archived_get_circle γglob γcur ca l t b :
+    some_archived γglob γcur ca l t b -∗
     persistent_circle ca l.
   Proof.
+    desγ γglob γcur.
     iIntros "Arch".
-      iDestruct "Arch" as (γall γarch γelt γt) "Arch".
-      iDestruct "Arch" as "(%Enc & %Hlen & Mono & Elt & Ca)".
+      iDestruct "Arch" as "(%Hlen & Mono & Elt & Ca)".
     by iDestruct "Ca" as "(↪all & ↪arch & PC)".
   Qed.
 
-  Lemma some_auth_update γm γ ca l t b :
+  Lemma some_auth_update γglob γcur ca l t b :
     t < b →
-    some_auth γm γ ca l t b ==∗
-    some_auth γm γ ca l (S t) b.
+    some_auth γglob γcur ca l t b ==∗
+    some_auth γglob γcur ca l (S t) b.
   Proof.
+    desγ γglob γcur.
     intros Htb.
     iIntros "Auth".
-      iDestruct "Auth" as (γall γarch γelt γt) "Auth".
       iDestruct "Auth" as (allγ elts archive) "Auth".
-      iDestruct "Auth" as "(%Enc & %Hlen & Map & Mono & Elt & Ca)".
-    iExists γall, γarch, γelt, γt.
+      iDestruct "Auth" as "(%Hlen & Map & Mono & Elt & Ca)".
 
     (* update mono *)
     iDestruct "Mono" as "[mono monoc]".
@@ -439,20 +434,21 @@ Section some.
       + iLeft. iPureIntro; lia.
   Qed.
 
-  Lemma some_auth_archive γm γ ca l t b :
+(*
+  Lemma some_auth_archive γglob γ ca l t b :
     own_circle ca -∗
-    some_auth γm γ ca l t b ==∗
-    some_archived γm γ ca l t b.
+    some_auth γglob γ ca l t b ==∗
+    some_archived γglob γ ca l t b.
     (*
     ∃ γ',
-      some_auth γm γ' ca l t b ∗ some_archived γm γ ca l t b.
+      some_auth γglob γ' ca l t b ∗ some_archived γglob γ ca l t b.
       *)
   Proof.
+    destruct γglob as (((γall,γarch),γelt),γt).
     iIntros "Own".
     iIntros "Auth".
-      iDestruct "Auth" as (γall γarch γelt γt) "Auth".
       iDestruct "Auth" as (allγ elts archive) "Auth".
-      iDestruct "Auth" as "(%Enc & %Hlen & Map & Mono & Elt & Ca)".
+      iDestruct "Auth" as "(%Hlen & Map & Mono & Elt & Ca)".
       iDestruct "Elt" as "[NoElt Elt]".
       iDestruct "Ca" as "[↪ arch]".
 
@@ -469,9 +465,10 @@ Section some.
       iMod (mono_nat_own_persist with "monoc") as "#monoc".
 
     (* finish *)
-    iModIntro. fr. fr. fr.
+    iModIntro. fr. fr.
     1: admit.
   Admitted.
+*)
 End some.
 
 Section proof.
@@ -481,14 +478,14 @@ Section proof.
   Let circleN := N .@ "circle".
   Let dequeN := N .@ "deque".
 
-  Definition deque_inv (γq γpop γm : gname) (A top bot : loc) : iProp :=
-    ∃ (γC γcur : gname) (ca : val) (l : list val) (t b : nat),
+  Definition deque_inv (γq γpop : gname) (γglob : gname*gname*gname*gname) (A top bot : loc) : iProp :=
+    ∃ (γcont γcur : gname) (ca : val) (l : list val) (t b : nat),
       ⌜1 ≤ t ≤ b⌝ ∗
-      some_auth γm γcur ca l t b ∗
+      some_auth γglob (γcont, γcur) ca l t b ∗
       own γq (●E (circ_slice l t b)) ∗
       (* circular array *)
       ( A ↦{#1/2} ca ∗ 
-        is_circle circleN γC ca ∗ circle_content γC l
+        is_circle circleN γcont ca ∗ circle_content γcont l
       ) ∗
       (* top *)
       top ↦ #t ∗
@@ -500,24 +497,24 @@ Section proof.
       ).
 
   Definition is_deque (γ : gname) (q : val) : iProp :=
-    ∃ (γq γpop γm : gname) (A top bot : loc),
+    ∃ (γq γpop : gname) (γglob : gname*gname*gname*gname) (A top bot : loc),
       ⌜q = (#A, #top, #bot)%V⌝ ∗
-      ⌜γ = encode (γq, γpop, γm)⌝ ∗
-      inv dequeN (deque_inv γq γpop γm A top bot).
+      ⌜γ = encode (γq, γpop, γglob)⌝ ∗
+      inv dequeN (deque_inv γq γpop γglob A top bot).
   Global Instance is_deque_persistent γ q :
     Persistent (is_deque γ q) := _.
 
   Definition deque_content (γ : gname) (frag : list val) : iProp :=
-    ∃ (γq γpop γm : gname),
-      ⌜γ = encode (γq, γpop, γm)⌝ ∗
+    ∃ (γq γpop : gname) (γglob : gname*gname*gname*gname),
+      ⌜γ = encode (γq, γpop, γglob)⌝ ∗
       own γq (◯E frag).
   Global Instance deque_content_timeless γ frag :
     Timeless (deque_content γ frag) := _.
 
   (* owner of the deque who can call push and pop *)
   Definition own_deque (γ : gname) (q : val) : iProp :=
-    ∃ (γq γpop γm : gname) (ca : val) (A top bot : loc) (b : nat),
-      ⌜γ = encode (γq, γpop, γm)⌝ ∗
+    ∃ (γq γpop : gname) (γglob : gname*gname*gname*gname) (ca : val) (A top bot : loc) (b : nat),
+      ⌜γ = encode (γq, γpop, γglob)⌝ ∗
       ⌜q = (#A, #top, #bot)%V⌝ ∗
       (* own circle *)
       A ↦{#1/2} ca ∗ own_circle ca ∗
@@ -528,8 +525,8 @@ Section proof.
     deque_content γ frag1 -∗ deque_content γ frag2 -∗ False.
   Proof.
     iIntros "C1 C2".
-      iDestruct "C1" as (γq γpop γm) "[%Enc C1]".
-      iDestruct "C2" as (γq' γpop' γm') "[%Enc' C2]".
+      iDestruct "C1" as (γq γpop γglob) "[%Enc C1]".
+      iDestruct "C2" as (γq' γpop' γglob') "[%Enc' C2]".
       encode_agree Enc.
     by iDestruct (own_valid_2 with "C1 C2") as %?%auth_frag_op_valid_1.
   Qed.
@@ -563,7 +560,7 @@ Section proof.
     (* allocate *)
     wp_bind (new_circle _)%E.
     iApply (new_circle_spec circleN)...
-    iIntros (γC ca l) "!> (%Len & IC & 🎯 & Ⓜ️)". wp_pures.
+    iIntros (γcont ca l) "!> (%Len & IC & 🎯 & Ⓜ️)". wp_pures.
     wp_alloc bot as "[b↦1 b↦2]". wp_alloc top as "t↦".
     wp_alloc A as "[A↦1 A↦2]". wp_pures.
 
@@ -571,8 +568,8 @@ Section proof.
     iMod (own_alloc (●E [] ⋅ ◯E [])) as (γq) "[γq● γq◯]".
       1: apply excl_auth_valid.
     iMod (ghost_var_alloc false) as (γpop) "[γpop1 γpop2]".
-    iMod (some_auth_alloc ca l 1) as (γm γcur) "Auth"...
-    iMod (inv_alloc dequeN _ (deque_inv γq γpop γm A top bot)
+    iMod (some_auth_alloc γcont ca l 1) as (γglob γcur) "Auth"...
+    iMod (inv_alloc dequeN _ (deque_inv γq γpop γglob A top bot)
       with "[A↦1 t↦ b↦1 IC 🎯 γq● γpop1 Auth]") as "Inv".
     { fr. fr. }
 
@@ -591,7 +588,7 @@ Section proof.
   Proof with extended_auto.
     iIntros "#Inv Own" (Φ) "AU".
       iLöb as "IH".
-      iDestruct "Own" as (γq γpop γm l A arr top bot b)
+      iDestruct "Own" as (γq γpop γglob l A arr top bot b)
         "(%Enc & -> & γOwn & AOwn & arrOwn & bOwn)".
       iDestruct "Inv" as (A' top' bot') "[%Q Inv]".
       injection Q as [= <- <- <-].
@@ -603,7 +600,7 @@ Section proof.
 
     (* load top *)
     wp_bind (! _)%E.
-      iInv "Inv" as (γq' γpop' γm' l1 Pop1 arr1 t1 b1)
+      iInv "Inv" as (γq' γpop' γglob' l1 Pop1 arr1 t1 b1)
         ">(%Enc' & %Bound1 & Phys & Abst & Mono)".
         encode_agree Enc.
       iDestruct "Abst" as "[● P]".
@@ -633,7 +630,7 @@ Section proof.
 
     (* store value *)
     wp_bind (_ <- _)%E.
-      iInv "Inv" as (γq' γpop' γm' l2 Pop2 arr2 t2 b2)
+      iInv "Inv" as (γq' γpop' γglob' l2 Pop2 arr2 t2 b2)
         ">(%Enc' & %Bound2 & Phys & Abst & Mono)".
         encode_agree Enc.
       iDestruct "Abst" as "[● P]".
@@ -664,11 +661,11 @@ Section proof.
     replace (Z.of_nat b + 1)%Z with (Z.of_nat (S b))...
 
     (* store bot *)
-    iInv "Inv" as (γq' γpop' γm' l3 Pop3 arr3 t3 b3)
+    iInv "Inv" as (γq' γpop' γglob' l3 Pop3 arr3 t3 b3)
         ">(%Enc' & %Bound3 & Phys & Abst & Mono)".
         encode_agree Enc.
       iMod "AU" as (q) "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq' γpop' γm') "[%Enc' ◯]".
+        iDestruct "Cont" as (γq' γpop' γglob') "[%Enc' ◯]".
         encode_agree Enc.
       iDestruct "Abst" as "[● P]".
         iDestruct (own_ea_agree with "● ◯") as "%". subst q.
@@ -721,7 +718,7 @@ Section proof.
       RET ov, own_deque γ q >>>.
   Proof with extended_auto.
     iIntros "#Inv Own" (Φ) "AU".
-      iDestruct "Own" as (γq γpop γm l A arr top bot b)
+      iDestruct "Own" as (γq γpop γglob l A arr top bot b)
         "(%Enc & -> & γOwn & AOwn & arrOwn & bOwn)".
       iDestruct "Inv" as (A' top' bot') "[%Q Inv]".
       injection Q as [= <- <- <-].
@@ -733,7 +730,7 @@ Section proof.
 
     (* decrement b early *)
     wp_bind (_ <- _)%E.
-      iInv "Inv" as (γq' γpop' γm' l1 Pop1 arr1 t1 b1)
+      iInv "Inv" as (γq' γpop' γglob' l1 Pop1 arr1 t1 b1)
         ">(%Enc' & %Bound1 & Phys & Abst & Mono)".
         encode_agree Enc.
       iDestruct "Abst" as "[● P]".
@@ -757,7 +754,7 @@ Section proof.
 
     (* load top *)
     wp_bind (! _)%E.
-      iInv "Inv" as (γq' γpop' γm' l2 Pop2 arr2 t2 b2)
+      iInv "Inv" as (γq' γpop' γglob' l2 Pop2 arr2 t2 b2)
         ">(%Enc' & %Bound2 & Phys & Abst & Mono)".
         encode_agree Enc.
       iDestruct "Abst" as "[● P]".
@@ -776,7 +773,7 @@ Section proof.
     (* if t < b-1, this load is the commit point *)
     destruct (decide (t2 < b-1)).
     { iMod "AU" as (l') "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq' γpop' γm') "[%Enc' ◯]".
+        iDestruct "Cont" as (γq' γpop' γglob') "[%Enc' ◯]".
         encode_agree Enc.
       destruct (mod_get_is_Some l (b-1)) as [v Hv]...
       erewrite circ_slice_shrink_right...
@@ -815,7 +812,7 @@ Section proof.
     (* empty *)
     case_bool_decide as Hbt; wp_pures.
     { wp_bind (_ <- _)%E.
-      iInv "Inv" as (γq' γpop' γm' l3 Pop3 arr3 t3 b3)
+      iInv "Inv" as (γq' γpop' γglob' l3 Pop3 arr3 t3 b3)
         ">(%Enc' & %Bound3 & Phys & Abst & Mono)".
         encode_agree Enc.
       iDestruct "Abst" as "[● P]".
@@ -850,7 +847,7 @@ Section proof.
     (* cas top, we already handled normal pop *)
     case_bool_decide... wp_pures.
     wp_bind (CmpXchg _ _ _)%E.
-      iInv "Inv" as (γq' γpop' γm' l3 Pop3 arr3 t3 b3)
+      iInv "Inv" as (γq' γpop' γglob' l3 Pop3 arr3 t3 b3)
         ">(%Enc' & %Bound3 & Phys & Abst & Mono)".
         encode_agree Enc.
       iDestruct "Abst" as "[● P]".
@@ -874,7 +871,7 @@ Section proof.
 
       (* AU *)
       iMod "AU" as (l') "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq' γpop' γm') "[%Enc' ◯]".
+        iDestruct "Cont" as (γq' γpop' γglob') "[%Enc' ◯]".
         encode_agree Enc.
       iDestruct "Abst" as "[● P]".
         iDestruct (own_ea_agree with "● ◯") as "%". subst l'.
@@ -895,7 +892,7 @@ Section proof.
       replace (Z.of_nat (b-1) + 1)%Z with (Z.of_nat b)...
       wp_bind (_ <- _)%E.
 
-      iInv "Inv" as (γq' γpop' γm' l4 Pop4 arr4 t4 b4)
+      iInv "Inv" as (γq' γpop' γglob' l4 Pop4 arr4 t4 b4)
         ">(%Enc' & %Bound4 & Phys & Abst & Mono)".
         encode_agree Enc.
       iDestruct "Abst" as "[● P]".
@@ -929,7 +926,7 @@ Section proof.
       (* store bot *)
       replace (Z.of_nat (b-1) + 1)%Z with (Z.of_nat b)...
       wp_bind (_ <- _)%E.
-      iInv "Inv" as (γq' γpop' γm' l4 Pop4 arr4 t4 b4)
+      iInv "Inv" as (γq' γpop' γglob' l4 Pop4 arr4 t4 b4)
         ">(%Enc' & %Bound4 & Phys & Abst & Mono)".
         encode_agree Enc.
       iDestruct "Abst" as "[● P]".
@@ -967,17 +964,9 @@ Section proof.
       RET ov >>>.
   Proof with extended_auto.
     iIntros "#Inv" (Φ) "AU".
-      iDestruct "Inv" as (γq γpop γm A top bot) "(%Q & %Enc & Inv)".
+      iDestruct "Inv" as (γq γpop γglob A top bot) "(%Q & %Enc & Inv)".
       subst q.
     wp_lam. unfold code.arr, code.top, code.bot. wp_pures.
-
-    (* FIXME: we shouldn't have to prove this again *)
-(*
-    assert (∀ γm γcur ca l t b, Persistent (some_frag γm γcur ca l t b)) as PERSF.
-    { apply some_frag_persistent. }
-    assert (∀ γm γcur ca l t b, Persistent (some_archived γm γcur ca l t b)) as PERSA.
-    { apply some_archived_persistent. }
-*)
 
     (* 1. load top *)
     wp_bind (! _)%E.
@@ -1061,7 +1050,7 @@ Section proof.
         { replace (mod_get l5 t1) with (mod_get l4 t1)...
           apply Lb45... }
         iMod "AU" as (lau) "[Cont [_ Commit]]".
-          iDestruct "Cont" as (γq' γpop' γm') "[%Enc' ◯]".
+          iDestruct "Cont" as (γq' γpop' γglob') "[%Enc' ◯]".
           encode_agree Enc.
           iDestruct (own_ea_agree with "● ◯") as "%Hlau". subst lau.
           iDestruct (some_frag_get_nonzero with "F5") as "%nonzero5".
@@ -1072,7 +1061,8 @@ Section proof.
       iModIntro. iSplitL "Auth ● A Top Bot"; fr...
       wp_pures. iApply "HΦ"...
     - (* array was archived *)
-      iDestruct (some_get_archived with "Auth F3") as (l' t' b') "#Arch"...
+      iDestruct (some_get_archived with "Auth F3") as (l' t' b') "#Arch".
+        { intro NO. injection NO... }
         iDestruct (some_archived_get_lb with "Arch F3") as "%Ht3'".
         iDestruct (some_archived_get_frag with "Arch") as "F'".
         iDestruct (some_archived_get_circle with "Arch") as "PC".
@@ -1113,7 +1103,7 @@ Section proof.
         { replace (mod_get l5 t1) with (mod_get l' t1)...
           apply Lb'5... }
         iMod "AU" as (lau) "[Cont [_ Commit]]".
-          iDestruct "Cont" as (γq' γpop' γm') "[%Enc' ◯]".
+          iDestruct "Cont" as (γq' γpop' γglob') "[%Enc' ◯]".
           encode_agree Enc.
           iDestruct (own_ea_agree with "● ◯") as "%Hlau". subst lau.
           iDestruct (some_frag_get_nonzero with "F5") as "%nonzero5".
