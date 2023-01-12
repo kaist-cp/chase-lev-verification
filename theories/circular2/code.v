@@ -67,27 +67,24 @@ Section code.
     λ: "deque" "v",
       let: "b" := !(bot "deque") in
       let: "t" := !(top "deque") in
-      let: "array" := !(arr "arraysz") in
-      
-      let: "sz" := Snd "arraysz" in
-      let: "b" := !(bot "deque") in
-      if: !(top "deque") + "sz" ≤ "b"
-        then "push" "deque" "v"
-      else
-      "array" +ₗ ("b" `rem` "sz") <- "v" ;;
+      let: "array" := !(arr "deque") in
+      let: "sz" := size_circle "array" in
+      (if: "t" + "sz" ≤ "b"
+        then arr "deque" <- grow_circle "array"
+        else #()
+      ) ;;
+      set_circle "array" "b" "v" ;;
       bot "deque" <- "b" + #1.
   
   Definition pop : val :=
     λ: "deque",
-      let: "arraysz" := !(arr "deque") in
-      let: "array" := Fst "arraysz" in
-      let: "sz" := Snd "arraysz" in
       let: "b" := !(bot "deque") - #1 in
+      let: "array" := !(arr "deque") in
       bot "deque" <- "b" ;;
       let: "t" := !(top "deque") in
       if: "b" < "t" then (* empty pop *)
         bot "deque" <- "t" ;; NONE
-      else let: "v" := !("array" +ₗ ("b" `rem` "sz")) in
+      else let: "v" := get_circle "array" "b" in
       if: "t" < "b" then SOME "v" (* normal case *)
       else let: "ok" := CAS (top "deque") "t" ("t" + #1) in
       bot "deque" <- "t" + #1 ;;
@@ -574,7 +571,7 @@ Section proof.
     iApply "HΦ". iModIntro. iSplitL "Inv"; first fr.
     iSplitL "γq◯"; first fr. fr. fr. instantiate (1:=1)...
   Qed.
-(*
+
   Lemma push_spec γ q (v : val) :
     is_deque γ q -∗
     own_deque γ q -∗
@@ -584,121 +581,53 @@ Section proof.
       RET #(), own_deque γ q >>>.
   Proof with extended_auto.
     iIntros "#Inv Own" (Φ) "AU".
-      iLöb as "IH".
-      iDestruct "Own" as (γq γpop γglob l A arr top bot b)
-        "(%Enc & -> & γOwn & AOwn & arrOwn & bOwn)".
-      iDestruct "Inv" as (A' top' bot') "[%Q Inv]".
-      injection Q as [= <- <- <-].
+      iDestruct "Own" as (γq γpop γglob ca A top bot b) "(%Enc & %Q & AOwn & caOwn & bOwn & popOwn)".
+        subst q.
+      iDestruct "Inv" as (γq' γpop' γglob' A' top' bot') "(%Q' & %Enc' & Inv)".
+        injection Q' as [= <- <- <-]. encode_agree Enc.
     wp_lam. unfold code.arr, code.top, code.bot. wp_pures.
 
-    (* load A & bot *)
-    wp_load. wp_pures.
+    (* load bot *)
     wp_load. wp_pures.
 
-    (* load top *)
+    (* 1. load top *)
     wp_bind (! _)%E.
-      iInv "Inv" as (γq' γpop' γglob' l1 Pop1 arr1 t1 b1)
-        ">(%Enc' & %Bound1 & Phys & Abst & Mono)".
-        encode_agree Enc.
-      iDestruct "Abst" as "[● P]".
-        iDestruct (ghost_var_agree with "γOwn P") as "%". subst Pop1.
-      iCombine "● P" as "Abst".
-      iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)".
+      iInv "Inv" as (γcont γ1 ca1 l1 t1 b1) "(>%Htb1 & >Auth & >● & A & >Top & >Bot)".
+        iDestruct "A" as "(>A↦ & #🎯1 & >📚)".
+          iDestruct (mapsto_agree with "AOwn A↦") as "%". subst ca1.
+        iCombine "A↦ 🎯1 📚" as "A".
         wp_load.
-        iDestruct (mapsto_agree with "A↦ AOwn") as "%HA".
-          injection HA as [= -> Hsz].
-        iDestruct (mapsto_agree with "b↦ bOwn") as "%Hb".
-          injection Hb as [=Hb]. apply Nat2Z.inj in Hb. subst b1.
-        iDestruct (array_agree with "arr↦ arrOwn") as "%"... subst l1.
-        clear Hsz.
-      iCombine "A↦ arr↦ t↦ b↦" as "Phys".
-      iDestruct "Mono" as (hl) "[Mono %HistPref1]".
-        iDestruct (mono_deque_get_lb with "Mono") as "#Mlb1".
-    iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, l,_,arr. fr. fr. }
+      iModIntro. iSplitL "Auth ● A Top Bot"; fr.
     wp_pures.
+    wp_load. wp_pures.
 
-    (* recurse *)
-    case_bool_decide as HbC.
-      { wp_pures. iApply ("IH" with "[γOwn AOwn arrOwn bOwn]")...
-        iExists _,_,_, l. fr. }
-    iClear "IH".
-    wp_pures. rewrite rem_mod_eq...
+    (* 2. get size *)
+    wp_bind (size_circle _)%E.
+      awp_apply size_circle_spec...
+      iInv "Inv" as (γc2 γ2 ca2 l2 t2 b2) "(>%Htb2 & >Auth & >● & A & >Top & >Bot)".
+        iDestruct "A" as "(>A↦ & #🎯2 & >📚)".
+          iDestruct (mapsto_agree with "AOwn A↦") as "%". subst ca2.
+      iAaccIntro with "[📚]".
 
-    (* store value *)
-    wp_bind (_ <- _)%E.
-      iInv "Inv" as (γq' γpop' γglob' l2 Pop2 arr2 t2 b2)
-        ">(%Enc' & %Bound2 & Phys & Abst & Mono)".
-        encode_agree Enc.
-      iDestruct "Abst" as "[● P]".
-        iDestruct (ghost_var_agree with "γOwn P") as "%". subst Pop2.
-      iCombine "● P" as "Abst".
-      iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)".
-        iDestruct (mapsto_agree with "A↦ AOwn") as "%HA".
-          injection HA as [= -> Hsz].
-        iDestruct (mapsto_agree with "b↦ bOwn") as "%Hb".
-          injection Hb as [=Hb]. apply Nat2Z.inj in Hb. subst b2.
-        iDestruct (array_agree with "arr↦ arrOwn") as "%"... subst l2.
-        clear Hsz.
-        iCombine "arr↦ arrOwn" as "arr↦".
-          iApply (wp_store_offset with "arr↦"). 1: apply mod_get_is_Some...
-          replace (<[b `mod` length l:=v]> l) with (mod_set l b v)...
-        iNext. iIntros "[arr↦ arrOwn]".
-      iCombine "A↦ arr↦ t↦ b↦" as "Phys".
-      iDestruct "Mono" as (hl1) "[Mono %HistPref2]".
-        iDestruct (mono_deque_auth_history with "Mono") as "%Hist2".
-      iDestruct (mono_deque_auth_lb_top with "Mono Mlb1") as "%Ht12".
-      iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, (mod_set l b v),false,arr,t2,b.
-        rewrite insert_length circ_slice_update_right... fr. fr.
-        iIntros "!> %Ht2b". rewrite mod_set_get_ne...
-        assert (t2 `mod` length l ≠ b `mod` length l)...
-        apply close_mod_neq... }
-    wp_pures.
-    replace (Z.of_nat b + 1)%Z with (Z.of_nat (S b))...
-
-    (* store bot *)
-    iInv "Inv" as (γq' γpop' γglob' l3 Pop3 arr3 t3 b3)
-        ">(%Enc' & %Bound3 & Phys & Abst & Mono)".
-        encode_agree Enc.
-      iMod "AU" as (q) "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq' γpop' γglob') "[%Enc' ◯]".
-        encode_agree Enc.
-      iDestruct "Abst" as "[● P]".
-        iDestruct (own_ea_agree with "● ◯") as "%". subst q.
-        iMod (own_ea_update (circ_slice l3 t3 (S b)) with "● ◯") as "[● ◯]".
-        iDestruct (ghost_var_agree with "γOwn P") as "%". subst Pop3.
-      iCombine "● P" as "Abst".
-      iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)".
-        iDestruct (mapsto_agree with "A↦ AOwn") as "%HA".
-          injection HA as [= -> Hsz].
-        iDestruct (mapsto_agree with "b↦ bOwn") as "%Hb".
-          injection Hb as [=Hb]. apply Nat2Z.inj in Hb. subst b3.
-        iDestruct (array_agree with "arr↦ arrOwn") as "%".
-          1: rewrite insert_length... subst l3.
-        iCombine "b↦ bOwn" as "b↦". wp_store.
-        iDestruct "b↦" as "[b↦ bOwn]".
-      iCombine "A↦ arr↦ t↦ b↦" as "Phys".
-      iDestruct "Mono" as (hl3) "[Mono %HistPref3]".
-        iDestruct (mono_deque_auth_history with "Mono") as "%Hist3".
-        iMod (mono_deque_push _
-          (if decide (t3 = b) then hl3 ++ [v] else hl3)
-          (S b) with "Mono") as "Mono"...
-        { destruct (decide (t3 = b))... right. split... }
-      rewrite <- circ_slice_extend_right... 2: rewrite mod_set_get...
-      iMod ("Commit" with "[◯]") as "Φ". 1: fr.
-    iModIntro. iModIntro.
-
-    iSplitL "Phys Abst Mono".
-    { iExists _,_,_, (mod_set l b v),false,_,t3,(S b). iFrame. fr.
-      case_decide.
-      - subst. destruct Hist3 as [[Hist3 _]|NO]...
-        rewrite lookup_app_r... rewrite mod_set_get...
-        rewrite Hist3. replace (b-b) with 0...
-      - iPureIntro; intros. apply HistPref3... }
-    iApply "Φ". iExists _,_,_, (mod_set l b v). fr. fr.
-    rewrite Hsz...
-  Qed.
+    iInv "Inv" as (γC4 γ4 ca4 l4 t4 b4) "(>%Htb4 & >Auth & >● & A & >Top & >Bot)".
+      iDestruct (some_get_frag with "Auth") as "#F4".
+      iDestruct (some_get_lb with "Auth F3") as "%Lb34".
+      iDestruct "A" as "(>A↦ & #🎯4 & >📚)".
+    
+    destruct (decide (γC3 = γC4)) as [eqγ|neqγ].
+    - (* array was not archived *)
+      subst γC4.
+      iAaccIntro with "[📚]".
+      { unfold tele_app.
+        instantiate (1:= {| tele_arg_head := l4;
+          tele_arg_tail := {| tele_arg_head := true |}
+        |})... }
+        all: simpl. { instantiate (1:=()). fr. fr. }
+        simpl. iIntros (x) "[%Hx 📚]".
+        iCombine "A↦ 🎯4 📚" as "A".
+      iModIntro. iSplitL "Auth ● A Top Bot"; fr.
+      
+  Admitted.
 
   Lemma pop_spec γ q :
     is_deque γ q -∗
@@ -714,238 +643,7 @@ Section proof.
         end,
       RET ov, own_deque γ q >>>.
   Proof with extended_auto.
-    iIntros "#Inv Own" (Φ) "AU".
-      iDestruct "Own" as (γq γpop γglob l A arr top bot b)
-        "(%Enc & -> & γOwn & AOwn & arrOwn & bOwn)".
-      iDestruct "Inv" as (A' top' bot') "[%Q Inv]".
-      injection Q as [= <- <- <-].
-    wp_lam. unfold code.arr, code.top, code.bot. wp_pures.
-
-    (* load arr & bot *)
-    wp_load. wp_pures.
-    wp_load. wp_pures.
-
-    (* decrement b early *)
-    wp_bind (_ <- _)%E.
-      iInv "Inv" as (γq' γpop' γglob' l1 Pop1 arr1 t1 b1)
-        ">(%Enc' & %Bound1 & Phys & Abst & Mono)".
-        encode_agree Enc.
-      iDestruct "Abst" as "[● P]".
-        iDestruct (ghost_var_agree with "γOwn P") as "%". subst Pop1.
-        iMod (ghost_var_update_2 true with "γOwn P") as "[γOwn P]"...
-      iCombine "● P" as "Abst".
-      iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)".
-        iDestruct (mapsto_agree with "A↦ AOwn") as "%HA".
-          injection HA as [= -> Hsz].
-        iDestruct (mapsto_agree with "b↦ bOwn") as "%Hb".
-          injection Hb as [=Hb]. apply Nat2Z.inj in Hb. subst b1.
-        iCombine "b↦ bOwn" as "b↦". wp_store.
-        replace (Z.of_nat b-1)%Z with (Z.of_nat (b-1))...
-        iDestruct "b↦" as "[b↦ bOwn]".
-        iDestruct (array_agree with "arr↦ arrOwn") as "%"... subst l1.
-        clear Hsz.
-      iCombine "A↦ arr↦ t↦ b↦" as "Phys".
-      iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, l. fr. }
-    wp_pures.
-
-    (* load top *)
-    wp_bind (! _)%E.
-      iInv "Inv" as (γq' γpop' γglob' l2 Pop2 arr2 t2 b2)
-        ">(%Enc' & %Bound2 & Phys & Abst & Mono)".
-        encode_agree Enc.
-      iDestruct "Abst" as "[● P]".
-        iDestruct (ghost_var_agree with "γOwn P") as "%". subst Pop2.
-      iCombine "● P" as "Abst".
-      iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)".
-        iDestruct (mapsto_agree with "A↦ AOwn") as "%HA".
-          injection HA as [= -> Hsz].
-        iDestruct (mapsto_agree with "b↦ bOwn") as "%Hb".
-          injection Hb as [=Hb]. apply Nat2Z.inj in Hb.
-          assert (b = b2)... subst b2. clear Hb.
-        iDestruct (array_agree with "arr↦ arrOwn") as "%"... subst l2.
-        clear Hsz.
-      iCombine "A↦ arr↦ t↦ b↦" as "Phys".
-    
-    (* if t < b-1, this load is the commit point *)
-    destruct (decide (t2 < b-1)).
-    { iMod "AU" as (l') "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq' γpop' γglob') "[%Enc' ◯]".
-        encode_agree Enc.
-      destruct (mod_get_is_Some l (b-1)) as [v Hv]...
-      erewrite circ_slice_shrink_right...
-      iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)". wp_load.
-      iCombine "A↦ arr↦ t↦ b↦" as "Phys".
-      iDestruct "Abst" as "[● P]".
-        iDestruct (own_ea_agree with "● ◯") as "%". subst l'.
-        iMod (own_ea_update (circ_slice l t2 (b-1)) with "● ◯") as "[● ◯]".
-        iMod (ghost_var_update_2 false with "γOwn P") as "[γOwn P]"...
-      iCombine "● P" as "Abst".
-      iDestruct "Mono" as (hl1) "[Mono %HistPref1]".
-        iDestruct (mono_deque_pop _ (b-1) with "Mono") as "Mono"...
-      iMod ("Commit" $! (circ_slice l t2 (b-1)) (SOMEV v)
-        with "[◯]") as "Φ". 1: fr.
-      iModIntro. iModIntro.
-      
-      iSplitL "Phys Abst Mono".
-      { iExists _,_,_, l. fr. fr.
-        iPureIntro; intros. apply HistPref1... }
-      wp_pures. case_bool_decide... wp_pures.
-
-      (* read [b2-1] *)
-      wp_bind (! _)%E. rewrite rem_mod_eq...
-      iApply (wp_load_offset with "arrOwn")...
-      iNext. iIntros "arrOwn".
-      wp_pures. case_bool_decide... wp_pures. iApply "Φ". fr.
-    }
-
-    (* otherwise... *)
-    iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)". wp_load.
-    iCombine "A↦ arr↦ t↦ b↦" as "Phys".
-    iModIntro. iSplitL "Phys Abst Mono".
-    { iExists _,_,_, l. fr. }
-    wp_pures.
-
-    (* empty *)
-    case_bool_decide as Hbt; wp_pures.
-    { wp_bind (_ <- _)%E.
-      iInv "Inv" as (γq' γpop' γglob' l3 Pop3 arr3 t3 b3)
-        ">(%Enc' & %Bound3 & Phys & Abst & Mono)".
-        encode_agree Enc.
-      iDestruct "Abst" as "[● P]".
-        iDestruct (ghost_var_agree with "γOwn P") as "%". subst Pop3.
-        iMod (ghost_var_update_2 false with "γOwn P") as "[γOwn P]"...
-      iCombine "● P" as "Abst".
-      iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)".
-        iDestruct (mapsto_agree with "A↦ AOwn") as "%HA".
-          injection HA as [= -> Hsz].
-        iDestruct (mapsto_agree with "b↦ bOwn") as "%Hb".
-          injection Hb as [=Hb]. assert (b = b3)... subst b3. clear Hb.
-        replace t2 with b...
-        iCombine "bOwn b↦" as "b↦". wp_store.
-        iDestruct "b↦" as "[bOwn b↦]".
-        iDestruct (array_agree with "arr↦ arrOwn") as "%"... subst l3.
-        clear Hsz.
-      iCombine "A↦ arr↦ t↦ b↦" as "Phys".
-      (* AU *)
-      iMod "AU" as (l') "[Cont [_ Commit]]".
-      iMod ("Commit" $! l' NONEV with "[Cont]") as "Φ"...
-      iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, l. fr. }
-      wp_pures. iApply "Φ". iExists _,_,_, l. fr.
-    }
-    
-    (* read [b2-1] *)
-    wp_bind (! _)%E. rewrite rem_mod_eq...
-    destruct (mod_get_is_Some l (b-1)) as [v Hv]...
-    iApply (wp_load_offset with "arrOwn")...
-    iNext. iIntros "arrOwn". wp_pures.
-
-    (* cas top, we already handled normal pop *)
-    case_bool_decide... wp_pures.
-    wp_bind (CmpXchg _ _ _)%E.
-      iInv "Inv" as (γq' γpop' γglob' l3 Pop3 arr3 t3 b3)
-        ">(%Enc' & %Bound3 & Phys & Abst & Mono)".
-        encode_agree Enc.
-      iDestruct "Abst" as "[● P]".
-        iDestruct (ghost_var_agree with "γOwn P") as "%". subst Pop3.
-      iCombine "● P" as "Abst".
-      iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)".
-        iDestruct (mapsto_agree with "A↦ AOwn") as "%HA".
-          injection HA as [= -> Hsz].
-        iDestruct (mapsto_agree with "b↦ bOwn") as "%Hb".
-          injection Hb as [=Hb]. assert (b = b3)... subst b3. clear Hb.
-        iDestruct (array_agree with "arr↦ arrOwn") as "%"... subst l3.
-        clear Hsz.
-      iCombine "A↦ arr↦ t↦ b↦" as "Phys".
-    assert (t2 = b-1)... subst t2. clear n Hbt.
-    replace (Z.of_nat (b-1) + 1)%Z with (Z.of_nat b)...
-    destruct (decide (b-1 = t3)).
-    - (* success *)
-      subst t3.
-      iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)". wp_cmpxchg_suc.
-      iCombine "A↦ arr↦ t↦ b↦" as "Phys".
-
-      (* AU *)
-      iMod "AU" as (l') "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq' γpop' γglob') "[%Enc' ◯]".
-        encode_agree Enc.
-      iDestruct "Abst" as "[● P]".
-        iDestruct (own_ea_agree with "● ◯") as "%". subst l'.
-        erewrite circ_slice_shrink_left... rewrite circ_slice_to_nil...
-        iMod (own_ea_update [] with "● ◯") as "[● ◯]".
-      iCombine "● P" as "Abst".
-      iMod ("Commit" $! [] (SOMEV v) with "[◯]") as "Φ". 1: fr.
-      iDestruct "Mono" as (hl1) "[Mono %HistPref1]".
-        iMod (mono_deque_pop_singleton _ _ (b-1) with "[Mono]") as "Mono".
-        { replace (S (b-1)) with b... }
-      replace (S (b-1)) with b...
-      iModIntro. iSplitL "Phys Abst Mono".
-        { iExists _,_,_, l,true,_,b,b. fr.
-          rewrite circ_slice_to_nil... iFrame. fr... }
-      wp_pures.
-
-      (* store bot *)
-      replace (Z.of_nat (b-1) + 1)%Z with (Z.of_nat b)...
-      wp_bind (_ <- _)%E.
-
-      iInv "Inv" as (γq' γpop' γglob' l4 Pop4 arr4 t4 b4)
-        ">(%Enc' & %Bound4 & Phys & Abst & Mono)".
-        encode_agree Enc.
-      iDestruct "Abst" as "[● P]".
-        iDestruct (ghost_var_agree with "γOwn P") as "%". subst Pop4.
-        iMod (ghost_var_update_2 false with "γOwn P") as "[γOwn P]"...
-      iCombine "● P" as "Abst".
-      iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)".
-        iDestruct (mapsto_agree with "A↦ AOwn") as "%HA".
-          injection HA as [= -> Hsz].
-        iDestruct (mapsto_agree with "b↦ bOwn") as "%Hb".
-          injection Hb as [=Hb]. assert (b = b4)... subst b4. clear Hb.
-        iDestruct (array_agree with "arr↦ arrOwn") as "%"... subst l4.
-        clear Hsz.
-        iCombine "bOwn b↦" as "b↦". wp_store.
-        iDestruct "b↦" as "[bOwn b↦]".
-      iCombine "A↦ arr↦ t↦ b↦" as "Phys".
-      iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, l. fr. }
-      wp_pures. iApply "Φ". iExists _,_,_, l. fr.
-    - (* fail *)
-      iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)".
-        wp_cmpxchg_fail. { intro NO. injection NO... }
-      iCombine "A↦ arr↦ t↦ b↦" as "Phys".
-
-      iMod "AU" as (l') "[Cont [_ Commit]]".
-      iMod ("Commit" $! l' NONEV with "[Cont]") as "Φ"...
-      iModIntro. iSplitL "Phys Abst Mono".
-        { iExists _,_,_, l. fr. }
-      wp_pures.
-
-      (* store bot *)
-      replace (Z.of_nat (b-1) + 1)%Z with (Z.of_nat b)...
-      wp_bind (_ <- _)%E.
-      iInv "Inv" as (γq' γpop' γglob' l4 Pop4 arr4 t4 b4)
-        ">(%Enc' & %Bound4 & Phys & Abst & Mono)".
-        encode_agree Enc.
-      iDestruct "Abst" as "[● P]".
-        iDestruct (ghost_var_agree with "γOwn P") as "%". subst Pop4.
-        iMod (ghost_var_update_2 false with "γOwn P") as "[γOwn P]"...
-      iCombine "● P" as "Abst".
-      iDestruct "Phys" as "(A↦ & arr↦ & t↦ & b↦)".
-        iDestruct (mapsto_agree with "A↦ AOwn") as "%HA".
-          injection HA as [= -> Hsz].
-        iDestruct (mapsto_agree with "b↦ bOwn") as "%Hb".
-          injection Hb as [=Hb]. assert (b = b4) by lia. subst b4. clear Hb.
-          iCombine "bOwn b↦" as "b↦". wp_store.
-          iDestruct "b↦" as "[bOwn b↦]".
-        iDestruct (array_agree with "arr↦ arrOwn") as "%"... subst l4.
-        clear Hsz.
-      iCombine "A↦ arr↦ t↦ b↦" as "Phys".
-
-      iModIntro. iSplitL "Phys Abst Mono".
-      { iExists _,_,_, l. fr. }
-      wp_pures. iApply "Φ". iExists _,_,_, l. fr.
-  Qed.
-*)
+  Admitted.
 
   Lemma steal_spec γ q :
     is_deque γ q -∗
