@@ -11,6 +11,10 @@ Section code.
     λ: "sz",
       let: "array" := AllocN "sz" #0 in
       ("array", "sz").
+
+  Definition size_circle : val :=
+    λ: "circle",
+      Snd "circle".
   
   Definition get_circle : val :=
     λ: "circle" "i",
@@ -24,7 +28,9 @@ Section code.
       let: "sz" := Snd "circle" in
       ("array" +ₗ ("i" `rem` "sz")) <- "v".
 
-  (* grow is not supported *)
+  Definition grow_circle : val :=
+    λ: "circle" "t" "b",
+      #().
 End code.
 
 (** Ghost state for the circle *)
@@ -68,10 +74,7 @@ Section proof.
     ∃ (arr : loc),
     ⌜ca = (#arr, #(length l))%V⌝ ∗ arr ↦∗□ l.
   Global Instance persistent_circle_persistent ca l :
-    Persistent (persistent_circle ca l).
-  Proof.
-    unfold Persistent, persistent_circle.
-  Admitted.
+    Persistent (persistent_circle ca l) := _.
 
   Definition own_circle (ca : val) : iProp :=
     ∃ (arr : loc) (l : list val),
@@ -136,6 +139,22 @@ Section proof.
     iExists _, (replicate n #0). fr.
   Qed.
 
+  Lemma size_circle_spec γ ca (i : nat) :
+    is_circle γ ca -∗
+    <<< ∀∀ (l : list val), circle_content γ l >>>
+      size_circle ca @ ↑N
+    <<< circle_content γ l, RET #(length l) >>>.
+  Proof with extended_auto.
+    iIntros "#Is" (Φ) "AU".
+      iDestruct "Is" as (arr n) "(-> & %Pos & Inv)".
+    wp_lam. wp_pures.
+    iInv "Inv" as (l) ">(%Len & arr↦ & ●)".
+    iMod "AU" as (l') "[Cont [_ Commit]]".
+      iDestruct (own_ea_agree with "● Cont") as "%". subst l'.
+    iMod ("Commit" with "Cont") as "Φ".
+    iModIntro. iSplitL "● arr↦"; fr. rewrite Len. by iApply "Φ".
+  Qed.
+
   Lemma get_circle_spec γ ca (i : nat) :
     is_circle γ ca -∗
     <<< ∀∀ (l : list val) (current : bool),
@@ -174,19 +193,44 @@ Section proof.
       iSplitL "● arr↦". { iExists l. fr. }
       by iApply "Φ".
   Qed.
+
+  Lemma set_circle_spec γ ca (i : nat) (v : val) :
+    is_circle γ ca -∗ own_circle ca -∗
+    <<< ∀∀ (l : list val), circle_content γ l >>>
+      set_circle ca #i v @ ↑N
+    <<< circle_content γ (<[i `mod` (length l) := v]> l), RET #() >>>.
+  Proof with extended_auto.
+    iIntros "#Is Own" (Φ) "AU".
+      iDestruct "Is" as (arr n) "(-> & %Pos & Inv)".
+    wp_lam. wp_pures.
+    
+    rewrite rem_mod_eq...
+    iInv "Inv" as (l) ">(%Len & arr↦ & ●)".
+      iDestruct "Own" as (arr' l') "[%Eq Own]". injection Eq as [= -> Len'].
+      iDestruct (array_agree with "Own arr↦") as "%Heq"... subst l'.
+    destruct (mod_get_is_Some l i) as [zz Hzz]...
+    iCombine "Own arr↦" as "arr↦".
+      iApply (wp_store_offset with "[arr↦]")... 1: rewrite -Len...
+      iNext. iIntros "[Own arr↦]".
+    iMod "AU" as (l') "[Cont [_ Commit]]".
+      iDestruct (own_ea_agree with "● Cont") as "%". subst l'.
+      iMod (own_ea_update (<[i `mod` (length l) := v]> l) with "● Cont") as "[● Cont]".
+    iMod ("Commit" with "Cont") as "Φ".
+    iModIntro. iSplitL "● arr↦"; fr.
+    - rewrite Len; fr. rewrite insert_length...
+    - by iApply "Φ".
+  Qed.
 End proof.
 
+(*
 Program Definition atomic_circle `{!heapGS Σ, !circleG Σ} :
   spec_circle.atomic_circle Σ :=
   {| spec_circle.new_circle_spec := new_circle_spec;
      spec_circle.get_circle_spec := get_circle_spec;
-(*
-     spec_circle.pop_spec := pop_spec;
-     spec_circle.steal_spec := steal_spec;
-*)
      spec_circle.circle_content_exclusive := circle_content_exclusive;
      spec_circle.circle_content_timeless := circle_content_timeless;
-     (*spec_circle_persistent_circle_persistent :=
-       persistent_circle_persistent*) |}.
+     spec_circle_persistent_circle_persistent :=
+       persistent_circle_persistent |}.
 
 Global Typeclasses Opaque circle_content is_circle.
+*)

@@ -20,8 +20,12 @@ Ltac encode_agree Hγ :=
       end
   end.
 
-Section heap.
+Section array.
   Context `{!heapGS Σ} (N : namespace).
+
+  Global Instance array_persistent p l :
+    Persistent (p ↦∗□ l).
+  Proof. apply big_sepL_persistent, _. Qed.
 
   Lemma array_agree x l1 l2 dq1 dq2 :
     length l1 = length l2 →
@@ -41,7 +45,7 @@ Section heap.
     iDestruct (mapsto_agree with "xl1 xl2") as "<-".
     by iDestruct ("HInd" $! l2 with "[] [x1] [x2]") as "<-".
   Qed.
-End heap.
+End array.
 
 Section modulo.
   Lemma rem_mod_eq (x y : nat) : (0 < y) → (x `rem` y)%Z = x `mod` y.

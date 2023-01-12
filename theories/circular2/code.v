@@ -62,11 +62,13 @@ Section code.
   Definition arr : val := λ: "deque", Fst (Fst "deque").
   Definition top : val := λ: "deque", Snd (Fst "deque").
   Definition bot : val := λ: "deque", Snd "deque".
-(*\
+
   Definition push : val :=
-    rec: "push" "deque" "v" :=
-      let: "arraysz" := !(arr "deque") in
-      let: "array" := Fst "arraysz" in
+    λ: "deque" "v",
+      let: "b" := !(bot "deque") in
+      let: "t" := !(top "deque") in
+      let: "array" := !(arr "arraysz") in
+      
       let: "sz" := Snd "arraysz" in
       let: "b" := !(bot "deque") in
       if: !(top "deque") + "sz" ≤ "b"
@@ -91,7 +93,7 @@ Section code.
       bot "deque" <- "t" + #1 ;;
       if: "ok" then SOME "v" (* popped *)
       else NONE. (* stolen *)
-*)
+
   (* NOTE: b ≤ t doesn't necessarily mean the deque was empty!
     It can also be the case that there was one element and
     the owner thread decremented b trying to pop. *)
@@ -434,24 +436,19 @@ Section some.
       + iLeft. iPureIntro; lia.
   Qed.
 
-(*
-  Lemma some_auth_archive γglob γ ca l t b :
+  Lemma some_auth_archive γglob γcur ca l t b :
     own_circle ca -∗
-    some_auth γglob γ ca l t b ==∗
-    some_archived γglob γ ca l t b.
-    (*
-    ∃ γ',
-      some_auth γglob γ' ca l t b ∗ some_archived γglob γ ca l t b.
-      *)
+    some_auth γglob γcur ca l t b ==∗
+    some_archived γglob γcur ca l t b ∗
+    ∃ γnew, some_auth γglob γnew ca l t b.
   Proof.
-    destruct γglob as (((γall,γarch),γelt),γt).
-    iIntros "Own".
+    desγ γglob γcur. iIntros "Own".
     iIntros "Auth".
       iDestruct "Auth" as (allγ elts archive) "Auth".
       iDestruct "Auth" as "(%Hlen & Map & Mono & Elt & Ca)".
       iDestruct "Elt" as "[NoElt Elt]".
       iDestruct "Ca" as "[↪ arch]".
-
+(*
     (* archive circle *)
     iDestruct "Own" as (arr' l') "[%Hca Own]".
     
@@ -467,8 +464,8 @@ Section some.
     (* finish *)
     iModIntro. fr. fr.
     1: admit.
-  Admitted.
 *)
+  Admitted.
 End some.
 
 Section proof.
