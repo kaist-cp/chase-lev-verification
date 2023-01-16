@@ -32,9 +32,10 @@ Section code.
     rec: "grow_rec" "circle" "ncirc" "t" "b" :=
       if: "t" < "b"
       then (
-        let: "v" := get_circle "circle" "t" in
-        set_circle "ncirc" "t" "v" ;;
-        "grow_rec" "circle" "ncirc" ("t" + #1) "b"
+        let: "b'" := "b" - #1 in
+        let: "v" := get_circle "circle" "b'" in
+        set_circle "ncirc" "b'" "v" ;;
+        "grow_rec" "circle" "ncirc" "t" "b'"
       )
       else #().
   
@@ -234,21 +235,25 @@ Section proof.
 
   Lemma grow_circle_rec_spec γ ca l
   (arr' : loc) (l' : list val) (t b : nat) :
-    length l' > 0 →
+    0 < length l ≤ length l' →
+    t ≤ b < t + length l →
     is_circle γ ca -∗ own_circle ca l -∗
     arr' ↦∗ l' -∗
     <<< ∀∀ (_ : ()), circle_content γ l >>>
       grow_circle_rec ca (#arr', #(length l'))%V #t #b @ ↑N
     <<< ∃∃ (l2' : list val),
-      ⌜circ_slice l t b = circ_slice l2' t b⌝,
+      ⌜length l' = length l2'⌝ ∗
+      ⌜circ_slice l t b = circ_slice l2' t b⌝ ∗
+      ⌜∀ i, b ≤ i < t + length l →
+        mod_get l' i = mod_get l2' i⌝,
     RET #(), own_circle ca l ∗ arr' ↦∗ l2' >>>.
   Proof with extended_auto.
-    iIntros "%Hn #Is Own arr'↦" (Φ) "AU".
+    iIntros "%Hlen %Hlt #Is Own arr'↦" (Φ) "AU".
       iDestruct "Own" as (arr) "[%Hca arr↦]". subst ca.
       remember (length l') as n eqn:Heqn.
-      iRevert "arr'↦ AU". iRevert (t l' Heqn).
+      iRevert "arr'↦ AU". iRevert (b l' Hlt Heqn).
     iLöb as "IH".
-      iIntros (t l') "%Heqn arr'↦ AU".
+      iIntros (b l') "%Hlt %Heqn arr'↦ AU".
     wp_lam. wp_pures.
 
     case_bool_decide; last first; wp_pures.
@@ -258,7 +263,9 @@ Section proof.
       2: fr. repeat rewrite circ_slice_to_nil...
     }
   
-    (* read t *)
+    (* read b' *)
+    destruct b as [|b]...
+    replace (Z.of_nat (S b) - 1)%Z with (Z.of_nat b)...
     awp_apply get_circle_spec without "arr↦ arr'↦"...
       rewrite /atomic_acc /=.
       iMod "AU" as (_) "[Cont [Abort _]]".
@@ -277,10 +284,9 @@ Section proof.
     iIntros "!> arr'↦". wp_pures.
     
     (* recurse *)
-    replace (Z.of_nat t + 1)%Z with (Z.of_nat (S t))...
     iSpecialize ("IH" with "arr↦").
-    iApply ("IH" $! (S t) (<[t `mod` n:=v]> l') with "[] [arr'↦]")...
-      1: rewrite insert_length...
+    iApply ("IH" $! b (mod_set l' b v) with "[] [] [arr'↦]")...
+    1: rewrite insert_length... 1: rewrite Heqn...
     iAuIntro.
     rewrite /atomic_acc /=.
       iMod "AU" as (_) "[Cont AC]".
@@ -289,16 +295,25 @@ Section proof.
       { iIntros "Cont".
         iDestruct "AC" as "[Abort _]".
         iMod ("Abort" with "Cont") as "AU". fr. }
-    iIntros (l2' Heqs).
+    iIntros (l2' [Hn2' [Heqs Hlast]]).
       iDestruct "AC" as "[_ Commit]".
-      iSpecialize ("Commit" $! (<[t `mod` n:=v]> l2')).
+      iSpecialize ("Commit" $! l2').
     iMod ("Commit" with "[]") as "HΦ".
-    { admit.
-
+    { iPureIntro. repeat split...
+      - rewrite (circ_slice_shrink_right _ _ _ v)...
+        2: replace (S b - 1) with b...
+        rewrite (circ_slice_shrink_right _ _ (S b) v)...
+        all: replace (S b - 1) with b...
+        + rewrite Heqs...
+        + rewrite -Hlast... unfold mod_get, mod_set.
+          rewrite insert_length list_lookup_insert...
+          apply Nat.mod_upper_bound...
+      - intros i Hi. rewrite -Hlast...
+        rewrite mod_set_get_ne...
+        apply close_mod_neq...
     }
-    iIntros "!> [Own arr'↦]".
-    iApply "HΦ". iFrame. iClear "Is". by simpl.
-  Admitted.
+    iIntros "!> [Own arr'↦]". iApply "HΦ". fr.
+  Qed.
 
   Lemma grow_circle_spec γ ca l (t b : nat) :
     is_circle γ ca -∗ own_circle ca l -∗
