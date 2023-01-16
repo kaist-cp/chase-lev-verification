@@ -43,7 +43,8 @@ Section code.
     λ: "circle" "t" "b",
       let: "sz" := Snd "circle" in
       let: "ncirc" := new_circle (#2 * "sz") in
-      grow_circle_rec "circle" "ncirc" "t" "b".
+      grow_circle_rec "circle" "ncirc" "t" "b" ;;
+      "ncirc".
 End code.
 
 (** Ghost state for the circle *)
@@ -244,8 +245,8 @@ Section proof.
     <<< ∃∃ (l2' : list val),
       ⌜length l' = length l2'⌝ ∗
       ⌜circ_slice l t b = circ_slice l2' t b⌝ ∗
-      ⌜∀ i, b ≤ i < t + length l →
-        mod_get l' i = mod_get l2' i⌝,
+      ⌜∀ i, b ≤ i < t + length l → mod_get l' i = mod_get l2' i⌝ ∗
+      circle_content γ l,
     RET #(), own_circle ca l ∗ arr' ↦∗ l2' >>>.
   Proof with extended_auto.
     iIntros "%Hlen %Hlt #Is Own arr'↦" (Φ) "AU".
@@ -259,7 +260,7 @@ Section proof.
     case_bool_decide; last first; wp_pures.
     { (* end loop *)
       iMod "AU" as (_) "[Cont [_ Commit]]".
-      iMod ("Commit" $! l' with "[] [arr↦ arr'↦]") as "HΦ"; fr.
+      iMod ("Commit" $! l' with "[Cont] [arr↦ arr'↦]") as "HΦ"; fr.
       2: fr. repeat rewrite circ_slice_to_nil...
     }
   
@@ -295,11 +296,11 @@ Section proof.
       { iIntros "Cont".
         iDestruct "AC" as "[Abort _]".
         iMod ("Abort" with "Cont") as "AU". fr. }
-    iIntros (l2' [Hn2' [Heqs Hlast]]).
+    iIntros (l2') "(%Hn2' & %Heqs & %Hlast & Cont)".
       iDestruct "AC" as "[_ Commit]".
       iSpecialize ("Commit" $! l2').
-    iMod ("Commit" with "[]") as "HΦ".
-    { iPureIntro. repeat split...
+    iMod ("Commit" with "[Cont]") as "HΦ".
+    { iFrame. iPureIntro. repeat split...
       - rewrite (circ_slice_shrink_right _ _ _ v)...
         2: replace (S b - 1) with b...
         rewrite (circ_slice_shrink_right _ _ (S b) v)...
@@ -316,8 +317,10 @@ Section proof.
   Qed.
 
   Lemma grow_circle_spec γ ca l (t b : nat) :
+    0 < length l →
+    t ≤ b < t + length l →
     is_circle γ ca -∗ own_circle ca l -∗
-    <<< ∀∀ (l : list val), circle_content γ l >>>
+    <<< ∀∀ (_ : ()), circle_content γ l >>>
       grow_circle ca #t #b @ ↑N
     <<< ∃∃ (γ' : gname) (ca' : val) (l' : list val),
       ⌜length l < length l'⌝ ∗
@@ -325,7 +328,46 @@ Section proof.
       is_circle γ' ca' ∗ circle_content γ' l',
     RET ca', own_circle ca l ∗ own_circle ca' l' >>>.
   Proof with extended_auto.
-  Admitted.
+    iIntros "%Hlen %Hlt #Is Own" (Φ) "AU".
+      iDestruct "Is" as (arr n) "(%Eq & %Hgt & #Inv)". subst ca.
+      iDestruct "Own" as (arr2) "[%Eq Own]".
+      injection Eq as [= <- Hn].
+    wp_lam. wp_pures.
+    unfold new_circle. wp_pures.
+    wp_alloc arr' as "arr'↦"... wp_pures.
+
+    (* make l' *)
+    replace (Z.to_nat (2 * length l)) with (2 * length l)...
+    remember (replicate (2 * length l) #0) as l'.
+    replace (2 * Z.of_nat n)%Z with (Z.of_nat (length l'))%Z...
+      2: subst l'...
+
+    awp_apply (grow_circle_rec_spec γ (#arr, #n) l arr' l' t b
+    with "[] [Own] [arr'↦]")...
+      all: try by subst l'; fr. 1: fr; rewrite Hn...
+      rewrite /atomic_acc /=.
+    iMod "AU" as (_) "[Cont AC]".
+      (*iSpecialize ("Commit" $! γq (#arr', #(length l'))%V l).*)
+    iModIntro. iExists (). fr. iSplit.
+    { iIntros "Cont". iDestruct "AC" as "[Abort _]".
+      iApply ("Abort" with "Cont").
+    }
+
+    iIntros (l2') "(%Hlen' & %Heqs & %Hrest & Cont)".
+      iDestruct "AC" as "[Abort _]".
+      iMod ("Abort" with "Cont") as "AU".
+    iIntros "!> [Own [arr'↦1 arr'↦2]]".
+    wp_pures.
+
+    iMod (own_alloc (●E l2' ⋅ ◯E l2')) as (γ') "[● ◯]".
+      1: apply excl_auth_valid.
+    iMod (inv_alloc N _ (circle_inv γ' arr' (2*n)) with "[arr'↦2 ●]") as "#Inv'".
+    { iExists l2'. fr. rewrite -Hlen' Heql'... }
+    iMod "AU" as (_) "[Cont [_ Commit]]".
+      iMod ("Commit" $! γ' (#arr', #(length l'))%V l2' with "[◯]") as "HΦ".
+      { rewrite -Hlen' Heql'. fr. fr. replace (2*length l) with (2*n)... }
+    iApply "HΦ". fr. fr. rewrite -Hlen'...
+  Qed.
 End proof.
 
 (*
