@@ -211,8 +211,8 @@ Section proof.
     is_circle γ ca -∗ own_circle ca l -∗
     <<< circle_content γ l >>>
       set_circle ca #i v @ ↑N
-    <<< circle_content γ (<[i `mod` (length l) := v]> l),
-    RET #(), own_circle ca (<[i `mod` (length l) := v]> l) >>>.
+    <<< circle_content γ (mod_set l i v),
+    RET #(), own_circle ca (mod_set l i v) >>>.
   Proof with extended_auto.
     iIntros "#Is Own" (Φ) "AU".
       iDestruct "Is" as (arr n) "(-> & %Pos & Inv)".
@@ -227,9 +227,9 @@ Section proof.
       iApply (wp_store_offset with "[arr↦]")... 1: rewrite -Len...
       iNext. iIntros "[Own arr↦]".
     iMod "AU" as "[Cont [_ Commit]]".
-      iMod (own_ea_update (<[i `mod` (length l) := v]> l) with "● Cont") as "[● Cont]".
+      iMod (own_ea_update (mod_set l i v) with "● Cont") as "[● Cont]".
     iMod ("Commit" with "Cont") as "Φ".
-    iModIntro. iSplitL "● arr↦"; fr.
+    iModIntro. iSplitL "● arr↦"; fr; unfold mod_set.
     - rewrite Len; fr. rewrite insert_length...
     - iApply "Φ". fr. rewrite insert_length Len...
   Qed.

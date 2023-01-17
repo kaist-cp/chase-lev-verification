@@ -47,6 +47,11 @@ Section array.
   Qed.
 End array.
 
+Section neq.
+  Lemma neq_symm (n m : nat) : n ≠ m ↔ m ≠ n.
+  Proof. lia. Qed.
+End neq.
+
 Section modulo.
   Lemma rem_mod_eq (x y : nat) : (0 < y) → (x `rem` y)%Z = x `mod` y.
   Proof.
