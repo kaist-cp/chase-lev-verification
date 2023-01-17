@@ -325,7 +325,7 @@ Section proof.
     <<< ∃∃ (γ' : gname) (ca' : val) (l' : list val),
       ⌜length l < length l'⌝ ∗
       ⌜circ_slice l t b = circ_slice l' t b⌝ ∗
-      is_circle γ' ca' ∗ circle_content γ' l',
+      is_circle γ' ca' ∗ circle_content γ l ∗ circle_content γ' l',
     RET ca', own_circle ca l ∗ own_circle ca' l' >>>.
   Proof with extended_auto.
     iIntros "%Hlen %Hlt #Is Own" (Φ) "AU".
@@ -364,7 +364,7 @@ Section proof.
     iMod (inv_alloc N _ (circle_inv γ' arr' (2*n)) with "[arr'↦2 ●]") as "#Inv'".
     { iExists l2'. fr. rewrite -Hlen' Heql'... }
     iMod "AU" as (_) "[Cont [_ Commit]]".
-      iMod ("Commit" $! γ' (#arr', #(length l'))%V l2' with "[◯]") as "HΦ".
+      iMod ("Commit" $! γ' (#arr', #(length l'))%V l2' with "[Cont ◯]") as "HΦ".
       { rewrite -Hlen' Heql'. fr. fr. replace (2*length l) with (2*n)... }
     iApply "HΦ". fr. fr. rewrite -Hlen'...
   Qed.

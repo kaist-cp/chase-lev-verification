@@ -21,7 +21,7 @@ Ltac encode_agree Hγ :=
   end.
 
 Section array.
-  Context `{!heapGS Σ} (N : namespace).
+  Context `{!heapGS Σ}.
 
   Global Instance array_persistent p l :
     Persistent (p ↦∗□ l).
@@ -45,6 +45,10 @@ Section array.
     iDestruct (mapsto_agree with "xl1 xl2") as "<-".
     by iDestruct ("HInd" $! l2 with "[] [x1] [x2]") as "<-".
   Qed.
+
+  Lemma array_persist x dq l :
+    x ↦∗{dq} l ==∗ x ↦∗□ l.
+  Admitted.
 End array.
 
 Section neq.
