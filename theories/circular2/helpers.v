@@ -134,6 +134,17 @@ Section list.
     unfold circ_slice. intros H. by replace (j-i) with 0 by lia.
   Qed.
 
+  Lemma circ_slice_length l i j :
+    i ≤ j → length (circ_slice l i j) = j - i.
+  Proof.
+  Admitted.
+
+  Lemma circ_slice_split l i m j :
+    i ≤ m ≤ j →
+    circ_slice l i j = circ_slice l i m ++ circ_slice l m j.
+  Proof.
+  Admitted.
+
   Lemma circ_slice_extend_right l i j v :
     length l ≠ 0 →
     i ≤ j → mod_get l j = Some v →
