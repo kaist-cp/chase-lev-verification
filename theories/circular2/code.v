@@ -7,52 +7,6 @@ From iris.heap_lang Require Import proofmode notation.
 From iris.prelude Require Import options.
 From chase_lev.circular2 Require Import helpers code_circle.
 
-(*
-We use a finite length circular list without resizing.
-if the array is full, the push function tries again.
-
-19    0  1  2  3  4  5     6
-  +--+--+--+--+--+--+--+--+
-  |99|10|20|30|40|04|05|06|
-  +--+--+--+--+--+--+--+--+
-18|88|   ^        ^    |07|7
-  +--+   top      bot  +--+
-17|77|                 |08|8
-  +--+--+--+--+--+--+--+--+
-  |66|55|44|33|22|11|10|09|
-  +--+--+--+--+--+--+--+--+
-16    15 14 13 12 11 10    9
-
-This deque has the following physical state:
-- t = 21, b = 24
-- l = [10, 20, ..., 99]
-
-and the following abstract state:
-- t = 21, b = 24, "not popping"
-- content = [20, 30, 40]
-- history = [_, 1, 2, ..., 10, 11, ..., 99, 10, 20]
-    where 1 to 3 were erased from the array     ^
-                                                t
-Note on history:
-- history is the list of "determined elements", i.e.
-  those that are definitely the last element pushed at
-  each index and won't be overwritten.
-- history includes indices from 0 to either t or t-1.
-  If t = b, the element at t may be overwritten by push,
-  so history goes up to t-1. Otherwise, it goes up to t.
-- history[0] does not correspond to any element in l
-  since t starts from 1 (because we need to decrement b).
-  As such, it can be any value.
-
-Invariants:
-- top |-> t
-- bot |-> b if "not popping", otherwise bot |-> b-1
-- arr |-> l
-- those in history are preserved (done by mono_list)
-- top always increases (done by mono_nat)
-- l and history matches at top
-*)
-
 Section code.
   Definition new_deque : val :=
     λ: "sz",
@@ -112,18 +66,12 @@ End code.
 Class dequeG Σ := DequeG {
     deque_tokG :> inG Σ (excl_authR $ listO valO);
     deque_popG :> ghost_varG Σ bool;
-    mono_natG :> mono_natG Σ;
-    geltsG :> ghost_mapG Σ nat val;
-    archiveG :> inG Σ mono_natR;
     eraG :> ghost_varG Σ (nat * gname * list val)
   }.
 
 Definition dequeΣ : gFunctors :=
   #[GFunctor (excl_authR $ listO valO);
     ghost_varΣ bool;
-    mono_natΣ;
-    ghost_mapΣ nat val;
-    GFunctor mono_natR;
     ghost_varΣ (nat * gname * list val)
   ].
 
