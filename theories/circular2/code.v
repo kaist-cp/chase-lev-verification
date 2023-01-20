@@ -467,8 +467,8 @@ Section some.
   Proof with extended_auto.
     desγ γglob.
     iIntros (Hlong Heqs) "Own Auth".
-      iDestruct "Auth" as "(%HltO & tbO & eltO & museO)".
-      iDestruct "eltO" as (elts) "[Elts #topelt]".
+      iDestruct "Auth" as "(%HltO & [tbO tbeO] & eltO & museO)".
+      iDestruct "eltO" as (elts) "[Elts %Heltslen]".
       iDestruct "museO" as (proom museum) "museO".
       iDestruct "museO" as "([%Hproomlen %Hmuslen] & museO)".
       iDestruct "museO" as "(Room & Museum & Archives)".
@@ -476,10 +476,13 @@ Section some.
     (* archive *)
     iMod (own_circle_persist with "Own") as "#PC".
     iDestruct (mono_nat_lb_own_get with "tbO") as "#tb".
+    iMod (mono_nat_own_persist with "tbeO") as "#tbe".
+    iDestruct (mono_list_lb_own_get with "Elts") as "#eltslb".
     iDestruct (mono_list_lb_own_get with "Room") as "#roomlb".
     iMod (mono_list_auth_own_update_app [(l, t, b)] with "Museum") as "[Museum #muslb]".
     iSplitR.
-    { iModIntro. fr. fr.
+    { iModIntro. fr. all: fr.
+      - case_bool_decide... iRight. destruct Heltslen...
       - rewrite lookup_app_r... replace (era - length proom) with 0...
       - rewrite lookup_app_r... replace (era - length museum) with 0...
     }

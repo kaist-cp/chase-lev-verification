@@ -48,7 +48,14 @@ Section array.
 
   Lemma array_persist x dq l :
     x ↦∗{dq} l ==∗ x ↦∗□ l.
-  Admitted.
+  Proof.
+    iInduction l as [|v l] "HInd" using rev_ind; auto.
+    rewrite array_app array_singleton.
+    iIntros "[x1 x2]".
+    iMod ("HInd" with "x1") as "x1".
+    iMod (mapsto_persist with "x2") as "x2".
+    rewrite /array big_sepL_snoc. by iFrame.
+  Qed.
 End array.
 
 Section neq.
@@ -135,27 +142,55 @@ Section list.
   Qed.
 
   Lemma circ_slice_singleton l i :
+    length l ≠ 0 →
     ∃ v, mod_get l i = Some v ∧ circ_slice l i (S i) = [v].
-  Admitted.
+  Proof.
+    intros Hl.
+    destruct (mod_get_is_Some l i) as [v Hv]; auto.
+    unfold circ_slice, circ_slice_d; simpl.
+    replace (S i - i) with 1; try lia. rewrite Hv.
+    by exists v.
+  Qed.
 
   Lemma circ_slice_length l i j :
-    i ≤ j → length (circ_slice l i j) = j - i.
+    length l ≠ 0 →
+    length (circ_slice l i j) = j - i.
   Proof.
-  Admitted.
+    unfold circ_slice. intros Hlen.
+    remember (j-i) as ji eqn:Hji. revert ji i j Hji.
+    induction ji as [|len IHji]; intros i j Hji; auto. simpl.
+    destruct (mod_get_is_Some l i) as [x Hx]; auto. rewrite Hx.
+    simpl. rewrite (IHji (S i) j); lia.
+  Qed.
 
   Lemma circ_slice_split m l i j :
-    i ≤ m ≤ j →
+    length l ≠ 0 → i ≤ m ≤ j →
     circ_slice l i j = circ_slice l i m ++ circ_slice l m j.
   Proof.
-  Admitted.
+    unfold circ_slice. intros Hlen Hm.
+    remember (m-i) as dif eqn:Hdif. revert dif i m j Hm Hdif.
+    induction dif as [|dif IHdif]; intros i m j Hm Hdif; simpl.
+    { replace m with i; by try lia. }
+    destruct (j-i) eqn:Eji; try lia. simpl.
+    destruct (mod_get_is_Some l i) as [x Hx]; auto. rewrite Hx.
+    assert (j - S i = n) as Eji' by lia.
+    specialize (IHdif (S i) m j). rewrite Eji' in IHdif.
+    rewrite IHdif; auto. all: lia.
+  Qed.
 
   Lemma circ_slice_split_eq m l l' i j :
+    length l ≠ 0 → length l' ≠ 0 →
     i ≤ m ≤ j →
     circ_slice l i j = circ_slice l' i j →
     circ_slice l i m = circ_slice l' i m ∧
     circ_slice l m j = circ_slice l' m j.
   Proof.
-  Admitted.
+    intros Hlen Hlen' Hm Heqs.
+    rewrite (circ_slice_split m l) in Heqs; auto.
+    rewrite (circ_slice_split m l') in Heqs; auto.
+    apply app_inj_1 in Heqs; auto.
+    do 2 (rewrite circ_slice_length; auto).
+  Qed.
 
   Lemma circ_slice_extend_right l i j v :
     length l ≠ 0 →
