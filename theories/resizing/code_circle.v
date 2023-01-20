@@ -4,7 +4,7 @@ From iris.base_logic.lib Require Import invariants ghost_var mono_nat.
 From chase_lev Require Import mono_list atomic.
 From iris.heap_lang Require Import proofmode notation.
 From iris.prelude Require Import options.
-From chase_lev.circular2 Require Import helpers spec_circle.
+From chase_lev.resizing Require Import helpers spec_circle.
 
 Section code.
   Definition new_circle : val :=
@@ -94,7 +94,7 @@ Section proof.
     ∃ (arr : loc),
       ⌜ca = (#arr, #(length l))%V⌝ ∗ arr ↦∗{#1/2} l.
   
-  Ltac extended_auto :=
+  Local Ltac extended_auto :=
     eauto;
     try rewrite replicate_length;
     try rewrite Nat2Z.id;
@@ -105,7 +105,7 @@ Section proof.
       try rewrite lookup_lt_is_Some;
       try lia; done
     ).
-  Ltac fr :=
+  Local Ltac fr :=
     repeat iModIntro; repeat iSplit; extended_auto; repeat iExists _;
     iFrame; eauto.
   
@@ -377,15 +377,16 @@ Section proof.
   Qed.
 End proof.
 
-(*
 Program Definition atomic_circle `{!heapGS Σ, !circleG Σ} :
   spec_circle.atomic_circle Σ :=
   {| spec_circle.new_circle_spec := new_circle_spec;
+     spec_circle.size_circle_spec := size_circle_spec;
      spec_circle.get_circle_spec := get_circle_spec;
+     spec_circle.set_circle_spec := set_circle_spec;
+     spec_circle.grow_circle_spec := grow_circle_spec;
      spec_circle.circle_content_exclusive := circle_content_exclusive;
-     spec_circle.circle_content_timeless := circle_content_timeless;
-     spec_circle_persistent_circle_persistent :=
-       persistent_circle_persistent |}.
+     spec_circle.own_circle_persist := own_circle_persist;
+  |}.
 
 Global Typeclasses Opaque circle_content is_circle.
-*)
+
