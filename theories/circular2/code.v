@@ -71,7 +71,7 @@ Class dequeG Σ := DequeG {
     (* RA *)
     topbotG :> mono_natG Σ;
     topeltG :> mono_listG val Σ;
-    roomG :> mono_listG (gname * val) Σ;
+    roomG :> mono_listG (gname * gname * val) Σ;
     museumG :> mono_listG (list val * nat * nat) Σ
   }.
 
@@ -83,7 +83,7 @@ Definition dequeΣ : gFunctors :=
     (* RA *)
     mono_natΣ;
     mono_listΣ val;
-    mono_listΣ (gname * val);
+    mono_listΣ (gname * gname * val);
     mono_listΣ (list val * nat * nat)
   ].
 
@@ -110,17 +110,17 @@ Ltac fr :=
 Section some.
   Context `{!heapGS Σ, !dequeG Σ}.
   Notation iProp := (iProp Σ).
-  Definition glob_gnames : Type := gname*gname*gname*gname*gname.
+  Definition glob_gnames : Type := gname*gname*gname*gname.
 
   Definition top_bot_state (t b : nat) : nat :=
     2*t + (if bool_decide (t < b) then 1 else 0).
 
   Definition some_frag (γglob : glob_gnames) (era : nat)
   (γcont : gname) (ca : val) (l : list val) (t b : nat) : iProp :=
-    let (γ'                   , γmus) := γglob in
-    let (γ''            , γroom) := γ' in
-    let (γ'''     , γelt) := γ'' in
-    let (γtb, γtbe) := γ''' in
+    let (γ'              , γmus) := γglob in
+    let (γ''      , γroom) := γ' in
+    let (γtb, γelt) := γ'' in
+    ∃ (γtbe : gname),
     ⌜1 ≤ t ≤ b ∧ b < t + length l ∧ length l ≠ 0⌝ ∗
     (* top-bot profile *)
     ( mono_nat_lb_own γtb (top_bot_state t b) ∗
@@ -132,17 +132,17 @@ Section some.
       ⌜t = b ∨ mod_get l t = elts !! t⌝
     ) ∗
     (* museum of past gnames and circles *)
-    ( ∃ (room : list (gname * val)),
-      ⌜room !! era = Some (γcont, ca)⌝ ∗
+    ( ∃ (room : list (gname * gname * val)),
+      ⌜room !! era = Some (γcont, γtbe, ca)⌝ ∗
       mono_list_lb_own γroom room
     ).
 
   Definition some_archived (γglob : glob_gnames) (era : nat)
   (γcont : gname) (ca : val) (l : list val) (t b : nat) : iProp :=
-    let (γ'                   , γmus) := γglob in
-    let (γ''            , γroom) := γ' in
-    let (γ'''     , γelt) := γ'' in
-    let (γtb, γtbe) := γ''' in
+    let (γ'              , γmus) := γglob in
+    let (γ''      , γroom) := γ' in
+    let (γtb, γelt) := γ'' in
+    ∃ (γtbe : gname),
     ⌜1 ≤ t ≤ b ∧ b < t + length l ∧ length l ≠ 0⌝ ∗
     (* top-bot profile *)
     ( mono_nat_lb_own γtb (top_bot_state t b) ∗
@@ -154,9 +154,9 @@ Section some.
       ⌜t = b ∨ mod_get l t = elts !! t⌝
     ) ∗
     (* museum of past gnames and circles *)
-    ( ∃ (room : list (gname * val))
+    ( ∃ (room : list (gname * gname * val))
         (museum : list (list val * nat * nat)),
-      ⌜room !! era = Some (γcont, ca)⌝ ∗
+      ⌜room !! era = Some (γcont, γtbe, ca)⌝ ∗
       ⌜museum !! era = Some (l, t, b)⌝ ∗
       mono_list_lb_own γroom room ∗
       mono_list_lb_own γmus museum
@@ -166,10 +166,10 @@ Section some.
 
   Definition some_auth (γglob : glob_gnames) (era : nat)
   (γcont : gname) (ca : val) (l : list val) (t b : nat) : iProp :=
-    let (γ'                   , γmus) := γglob in
-    let (γ''            , γroom) := γ' in
-    let (γ'''     , γelt) := γ'' in
-    let (γtb, γtbe) := γ''' in
+    let (γ'              , γmus) := γglob in
+    let (γ''      , γroom) := γ' in
+    let (γtb, γelt) := γ'' in
+    ∃ (γtbe : gname),
     ⌜1 ≤ t ≤ b ∧ b < t + length l ∧ length l ≠ 0⌝ ∗
     (* top-bot profile *)
     (mono_nat_auth_own γtb 1 (top_bot_state t b) ∗
@@ -183,19 +183,20 @@ Section some.
         else (length elts = S t ∧ mod_get l t = elts !! t)⌝
     ) ∗
     (* museum of past gnames and circles *)
-    ( ∃ (proom : list (gname * val))
+    ( ∃ (proom : list (gname * gname * val))
         (museum : list (list val * nat * nat)),
       ⌜length proom = era ∧ length museum = era⌝ ∗
-      mono_list_auth_own γroom 1 (proom ++ [(γcont, ca)]) ∗
+      mono_list_auth_own γroom 1 (proom ++ [(γcont, γtbe, ca)]) ∗
       mono_list_auth_own γmus 1 museum ∗
-      [∗ list] i ↦ γc ; ltbi ∈ proom ; museum, (
-        some_archived γglob i γc.1 γc.2 (ltbi.1.1) (ltbi.1.2) (ltbi.2)
+      [∗ list] i ↦ γγc ; ltbi ∈ proom ; museum, (
+        some_archived γglob i (γγc.1.1) (γγc.2)
+          (ltbi.1.1) (ltbi.1.2) (ltbi.2)
       )
     ).
 
   (* Timeless & Persistent *)
   Ltac desγ H :=
-    destruct H as ((((γtb, γtbe), γelt), γroom), γmuseum).
+    destruct H as (((γtb, γelt), γroom), γmuseum).
 
   Global Instance some_frag_timeless γglob era γcont ca l t b :
     Timeless (some_frag γglob era γcont ca l t b).
@@ -231,10 +232,10 @@ Section some.
     iMod (mono_nat_own_alloc 2) as (γtb) "[tb _]".
     iMod (mono_nat_own_alloc 2) as (γtbe) "[tbe _]".
     iMod (mono_list_own_alloc ([NONEV])) as (γelt) "[topelt _]".
-    iMod (mono_list_own_alloc ([(γcont, ca)])) as (γroom) "[room _]".
+    iMod (mono_list_own_alloc ([(γcont, γtbe, ca)])) as (γroom) "[room _]".
     iMod (mono_list_own_alloc ([] : list (list val * nat * nat))) as (γmus) "[museum _]".
-    iExists (γtb, γtbe, γelt, γroom, γmus).
-    iModIntro. fr.
+    iExists (γtb, γelt, γroom, γmus).
+    iModIntro. fr. fr.
     iSplitL "topelt"; fr. fr.
   Qed.
 
@@ -246,9 +247,9 @@ Section some.
   Proof.
     desγ γglob.
     iIntros "F1 F2".
-      iDestruct "F1" as "(%Hlt1 & tb1 & elt1 & muse1)".
+      iDestruct "F1" as (γtbe1) "(%Hlt1 & tb1 & elt1 & muse1)".
       iDestruct "muse1" as (room1) "[%Hroom1 Lb1]".
-      iDestruct "F2" as "(%Hlt2 & tb2 & elt2 & muse2)".
+      iDestruct "F2" as (γtbe2) "(%Hlt2 & tb2 & elt2 & muse2)".
       iDestruct "muse2" as (room2) "[%Hroom2 Lb2]".
     iDestruct (mono_list_lb_valid with "Lb1 Lb2") as "[%Pref|%Pref]".
     - eapply prefix_lookup in Hroom1; eauto.
@@ -263,7 +264,7 @@ Section some.
   Proof with extended_auto.
     desγ γglob.
     iIntros "Auth".
-      iDestruct "Auth" as "(%HltO & [tbO tbeO] & eltO & museO)".
+      iDestruct "Auth" as (γtbeO) "(%HltO & [tbO tbeO] & eltO & museO)".
       iDestruct "eltO" as (elts) "[Elt %Heltslen]".
       iDestruct "museO" as (room museum) "museO".
       iDestruct "museO" as "([%Hroomlen %Hmuslen] & museO)".
@@ -272,11 +273,9 @@ Section some.
     iDestruct (mono_nat_lb_own_get with "tbeO") as "#lbe".
     iDestruct (mono_list_lb_own_get with "Elt") as "#eltlb".
     iDestruct (mono_list_lb_own_get with "Room") as "#rlb".
-    fr.
-    - fr. case_bool_decide; [iLeft|iRight]...
-      destruct Heltslen...
-    - fr. rewrite lookup_app_r...
-      replace (era - length room) with 0...
+    fr. fr.
+    - fr. case_bool_decide; [iLeft|iRight]... destruct Heltslen...
+    - fr. rewrite lookup_app_r... replace (era - length room) with 0...
   Qed.
 
   Lemma some_get_archived γglob era1 γcont1 ca1 l1 t1 b1
@@ -289,11 +288,11 @@ Section some.
   Proof with extended_auto.
     desγ γglob.
     iIntros (Hneq) "Auth F".
-      iDestruct "Auth" as "(%HltO & tbO & eltO & museO)".
+      iDestruct "Auth" as (γtbeO) "(%HltO & tbO & eltO & museO)".
       iDestruct "museO" as (room museum) "museO".
       iDestruct "museO" as "([%Hroomlen %Hmuslen] & museO)".
       iDestruct "museO" as "(Room & Museum & Archives)".
-      iDestruct "F" as "(%Hlt & tb & elt & muse)".
+      iDestruct "F" as (γtbe) "(%Hlt & tb & elt & muse)".
       iDestruct "muse" as (room') "[%Hroom'2 Lb']".
     iDestruct (mono_list_auth_lb_valid with "Room Lb'") as "%Pref".
       destruct Pref as [_ Pref].
@@ -319,8 +318,8 @@ Section some.
   Proof with extended_auto.
     desγ γglob.
     iIntros "Auth F".
-      iDestruct "Auth" as "(%HltO & [tbO tbeO] & eltO & museO)".
-      iDestruct "F" as "(%Hlt & [tb tbe] & elt & muse)".
+      iDestruct "Auth" as (γtbeO) "(%HltO & [tbO tbeO] & eltO & museO)".
+      iDestruct "F" as (γtbe) "(%Hlt & [tb tbe] & elt & muse)".
     iDestruct (mono_nat_lb_own_valid with "tbO tb") as "[_ %Htb]".
       apply top_bot_state_le in Htb as [Ht21 Htb21]. fr.
     iIntros ([H1 Ht1b2]). subst t2. assert (t1 < b1) as Htb1... fr.
@@ -340,9 +339,9 @@ Section some.
   Proof.
     desγ γglob.
     iIntros "Arc".
-      iDestruct "Arc" as "(%Hlt & [tb tbe] & elt & muse & pers)".
+      iDestruct "Arc" as (γtbeA) "(%Hlt & [tb tbe] & elt & muse & pers)".
       iDestruct "muse" as (room museum) "(%Hroom & Hmuseum & Room & Museum)".
-    fr. by iApply mono_nat_persistent_lb_own_get.
+    fr. fr. by iApply mono_nat_persistent_lb_own_get.
   Qed.
 
   Lemma some_archived_get_lb γglob era γcont ca l1 t1 b1 l2 t2 b2 :
@@ -355,8 +354,15 @@ Section some.
   Proof with extended_auto.
     desγ γglob.
     iIntros "Arc F".
-      iDestruct "Arc" as "(%Hlt1 & [tb1 tbe1] & elt1 & muse1 & pers1)".
-      iDestruct "F" as "(%Hlt2 & [tb2 tbe2] & elt2 & muse2)".
+      iDestruct "Arc" as (γtbeA) "(%Hlt1 & [tb1 tbe1] & elt1 & muse1 & pers1)".
+      iDestruct "muse1" as (room1 museum1) "muse1".
+      iDestruct "muse1" as "(%Hroom1 & %Hmuse1 & Lbroom1 & Lbmuse1)".
+      iDestruct "F" as (γtbe) "(%Hlt2 & [tb2 tbe2] & elt2 & muse2)".
+      iDestruct "muse2" as (room2) "[%Hroom2 Lbroom2]".
+    iDestruct (mono_list_lb_lookup era with "Lbroom1 Lbroom2") as "%Hr12".
+      { apply lookup_lt_Some in Hroom1... }
+      { apply lookup_lt_Some in Hroom2... }
+      rewrite Hroom1 Hroom2 in Hr12. injection Hr12 as [= <-].
     iDestruct (mono_nat_persistent_lb_own_valid with "tbe1 tbe2") as "%Htb2".
     apply top_bot_state_le in Htb2 as [Hlt21 Htb2].
       fr. iIntros ([<- Hlt]). clear Hlt21.
@@ -376,7 +382,7 @@ Section some.
   Proof.
     desγ γglob.
     iIntros "Arc".
-      iDestruct "Arc" as "(%Hlt & tb & elt & muse & pers)".
+      iDestruct "Arc" as (γtbeA) "(%Hlt & tb & elt & muse & pers)".
     auto.
   Qed.
 
@@ -386,7 +392,7 @@ Section some.
   Proof.
     desγ γglob.
     iIntros "Auth".
-      iDestruct "Auth" as "(%HltO & tbO & eltO & museO)".
+      iDestruct "Auth" as (γtbeO) "(%HltO & tbO & eltO & museO)".
       iDestruct "eltO" as (elts) "[Elts %Heltslen]".
     unfold some_auth. rewrite mod_set_length. fr.
     fr. case_bool_decide; auto. rewrite mod_set_get_ne; auto.
@@ -400,7 +406,7 @@ Section some.
   Proof with extended_auto.
     desγ γglob.
     iIntros (Hlt) "Auth".
-      iDestruct "Auth" as "(%HltO & [tbO tbeO] & eltO & museO)".
+      iDestruct "Auth" as (γtbeO) "(%HltO & [tbO tbeO] & eltO & museO)".
       iDestruct "eltO" as (elts) "[Elts %Heltslen]".
     iMod (mono_nat_own_update (top_bot_state (S t) b)
       with "tbO") as "[tbO _]".
@@ -425,7 +431,7 @@ Section some.
   Proof with extended_auto.
     desγ γglob.
     iIntros (Hlt) "Auth".
-      iDestruct "Auth" as "(%HltO & [tbO tbeO] & eltO & museO)".
+      iDestruct "Auth" as (γtbeO) "(%HltO & [tbO tbeO] & eltO & museO)".
       iDestruct "eltO" as (elts) "[Elts %Heltslen]".
     iMod (mono_nat_own_update (top_bot_state t (S b))
       with "tbO") as "[tbO _]".
@@ -450,7 +456,7 @@ Section some.
   Proof with extended_auto.
     desγ γglob.
     iIntros (Hlt) "Auth".
-      iDestruct "Auth" as "(%HltO & [tbO tbeO] & eltO & museO)".
+      iDestruct "Auth" as (γtbeO) "(%HltO & [tbO tbeO] & eltO & museO)".
       iDestruct "eltO" as (elts) "[Elts %Heltslen]".
     replace (top_bot_state t b) with (top_bot_state t (b-1)).
       2: unfold top_bot_state; repeat case_bool_decide...
@@ -467,7 +473,7 @@ Section some.
   Proof with extended_auto.
     desγ γglob.
     iIntros (Hlong Heqs) "Own Auth".
-      iDestruct "Auth" as "(%HltO & [tbO tbeO] & eltO & museO)".
+      iDestruct "Auth" as (γtbeO) "(%HltO & [tbO tbeO] & eltO & museO)".
       iDestruct "eltO" as (elts) "[Elts %Heltslen]".
       iDestruct "museO" as (proom museum) "museO".
       iDestruct "museO" as "([%Hproomlen %Hmuslen] & museO)".
@@ -481,30 +487,32 @@ Section some.
     iDestruct (mono_list_lb_own_get with "Room") as "#roomlb".
     iMod (mono_list_auth_own_update_app [(l, t, b)] with "Museum") as "[Museum #muslb]".
     iSplitR.
-    { iModIntro. fr. all: fr.
+    { iModIntro. fr. fr. all: fr.
       - case_bool_decide... iRight. destruct Heltslen...
       - rewrite lookup_app_r... replace (era - length proom) with 0...
       - rewrite lookup_app_r... replace (era - length museum) with 0...
     }
 
     (* new era *)
-    iMod (mono_list_auth_own_update_app [(γcont', ca')] with "Room") as "[Room #rlb]".
+    iMod (mono_nat_own_alloc (top_bot_state t b)) as (γtbe') "[tbeO _]".
+    iMod (mono_list_auth_own_update_app [(γcont', γtbe', ca')] with "Room") as "[Room #rlb]".
 
     (* frame *)
-    iModIntro. fr.
+    iModIntro. fr. fr.
     iSplitL "Elts".
-    { fr.
-      iDestruct "topelt" as "[%Heq|(%Hlt & %v & %Hget & ↪)]"... iRight.
-      fr. fr. apply (circ_slice_split_eq (S t)) in Heqs as [Heqs _]...
-      destruct (circ_slice_singleton l t) as [x [Hx Hsx]].
-      destruct (circ_slice_singleton l' t) as [y [Hy Hsy]].
+    { fr. case_bool_decide... fr.
+      destruct Heltslen as [_ Hget].
+      apply (circ_slice_split_eq (S t)) in Heqs as [Heqs _]...
+      destruct (circ_slice_singleton l t) as [x [Hx Hsx]]...
+      destruct (circ_slice_singleton l' t) as [y [Hy Hsy]]...
       rewrite Hsx Hsy in Heqs. injection Heqs as [= <-].
       rewrite Hy -Hget Hx...
     }
     fr. fr; simpl...
     { rewrite app_length -Hproomlen. simpl... }
     { rewrite app_length -Hmuslen. simpl... }
-    fr.
+    fr. all: fr.
+    - case_bool_decide... iRight. destruct Heltslen...
     - rewrite lookup_app_l...
       2: rewrite app_length; simpl...
       rewrite lookup_app_r...
@@ -620,7 +628,7 @@ Section proof.
     iMod (own_alloc (●E [] ⋅ ◯E [])) as (γq) "[γq● γq◯]".
       1: apply excl_auth_valid.
     iMod (ghost_var_alloc false) as (γpop) "[γpop1 γpop2]".
-    iMod (some_auth_alloc γcont ca l 1) as (γglob) "Auth"...
+    iMod (some_auth_alloc γcont ca l) as (γglob) "Auth"...
     iMod (ghost_var_alloc (0, γcont, l)) as (γera) "[eraG1 eraG2]".
     iMod (inv_alloc dequeN _ (deque_inv γq γpop γera γglob A top bot)
       with "[A↦1 t↦ b↦1 IC IsC γq● γpop1 Auth eraG1]") as "Inv".
@@ -805,7 +813,7 @@ Section proof.
         iCombine "bot↦ pop" as "Bot".
         iDestruct "Abst" as "(Glob & Q & Era)".
           iDestruct (some_get_lb with "Glob F1") as "%Ht1Y".
-          apply (circ_slice_split_eq tY) in HeqsY as [_ HeqsY].
+          apply (circ_slice_split_eq tY) in Heqs as [_ HeqsY]...
           iDestruct (ghost_var_agree with "eraOwn Era") as "%Eq".
           injection Eq as [= <- <- <-].
           iMod (some_auth_archive γcontX caX lX with "Own Glob") as "[#Arch Glob]"...
