@@ -401,7 +401,7 @@ Section some.
     desγ γglob.
     iIntros (Hlt) "Auth".
       iDestruct "Auth" as "(%HltO & [tbO tbeO] & eltO & museO)".
-      iDestruct "eltO" as (elts) "[Elts %Heltslen]"...
+      iDestruct "eltO" as (elts) "[Elts %Heltslen]".
     iMod (mono_nat_own_update (top_bot_state (S t) b)
       with "tbO") as "[tbO _]".
     { unfold top_bot_state. do 2 case_bool_decide... }
@@ -411,20 +411,51 @@ Section some.
 
     destruct (decide (S t = b)).
     { iModIntro. fr. fr. do 2 case_bool_decide... }
-    
-  Admitted.
+    destruct (mod_get_is_Some l (S t)) as [v Hv]...
+    iMod (mono_list_auth_own_update_app [v] with "Elts") as "[Elts _]".
+    iModIntro. fr. fr. do 2 case_bool_decide...
+    rewrite app_length lookup_app_r; simpl...
+    replace (S t - length elts) with 0; simpl... fr.
+  Qed.
 
   Lemma some_auth_push γglob era γcont ca l t b :
     S b < t + length l →
     some_auth γglob era γcont ca l t b ==∗
     some_auth γglob era γcont ca l t (S b).
-  Admitted.
+  Proof with extended_auto.
+    desγ γglob.
+    iIntros (Hlt) "Auth".
+      iDestruct "Auth" as "(%HltO & [tbO tbeO] & eltO & museO)".
+      iDestruct "eltO" as (elts) "[Elts %Heltslen]".
+    iMod (mono_nat_own_update (top_bot_state t (S b))
+      with "tbO") as "[tbO _]".
+    { unfold top_bot_state. do 2 case_bool_decide... }
+    iMod (mono_nat_own_update (top_bot_state t (S b))
+      with "tbeO") as "[tbeO _]".
+    { unfold top_bot_state. do 2 case_bool_decide... }
+
+    case_bool_decide; last first.
+    { iModIntro. fr. fr. case_bool_decide... }
+    destruct (mod_get_is_Some l t) as [v Hv]...
+    iMod (mono_list_auth_own_update_app [v] with "Elts") as "[Elts _]".
+    iModIntro. fr. fr. case_bool_decide...
+    rewrite app_length lookup_app_r; simpl...
+    replace (t - length elts) with 0; simpl... fr.
+  Qed.
 
   Lemma some_auth_pop γglob era γcont ca l t b :
     t < b - 1 →
     some_auth γglob era γcont ca l t b ==∗
     some_auth γglob era γcont ca l t (b - 1).
-  Admitted.
+  Proof with extended_auto.
+    desγ γglob.
+    iIntros (Hlt) "Auth".
+      iDestruct "Auth" as "(%HltO & [tbO tbeO] & eltO & museO)".
+      iDestruct "eltO" as (elts) "[Elts %Heltslen]".
+    replace (top_bot_state t b) with (top_bot_state t (b-1)).
+      2: unfold top_bot_state; repeat case_bool_decide...
+    iModIntro. fr. fr. case_bool_decide...
+  Qed.
 
   Lemma some_auth_archive γcont' ca' l' γglob era γcont ca l t b :
     length l ≤ length l' →
