@@ -108,6 +108,18 @@ Section mono_list_own.
     by iDestruct (own_valid_2 with "Hauth Hlb") as %?%mono_list_both_dfrac_valid_L.
   Qed.
 
+  Lemma mono_list_auth_lb_lookup i γ q l1 l2 :
+    i < length l2 →
+    mono_list_auth_own γ q l1 -∗
+    mono_list_lb_own γ l2 -∗
+    ⌜ l1 !! i = l2 !! i ⌝.
+  Proof.
+    iIntros (Hi) "Hauth Hlb".
+    iDestruct (mono_list_auth_lb_valid with "Hauth Hlb") as "[_ %Pref]".
+    assert (is_Some (l2 !! i)) as [v Hv] by by rewrite lookup_lt_is_Some.
+    rewrite Hv. eapply prefix_lookup in Pref; eauto. 
+  Qed.
+
   Lemma mono_list_lb_valid γ l1 l2 :
     mono_list_lb_own γ l1 -∗
     mono_list_lb_own γ l2 -∗
@@ -115,6 +127,21 @@ Section mono_list_own.
   Proof.
     unseal. iIntros "H1 H2".
     by iDestruct (own_valid_2 with "H1 H2") as %?%mono_list_lb_op_valid_L.
+  Qed.
+
+  Lemma mono_list_lb_lookup i γ l1 l2 :
+    i < length l1 → i < length l2 →
+    mono_list_lb_own γ l1 -∗
+    mono_list_lb_own γ l2 -∗
+    ⌜ l1 !! i = l2 !! i ⌝.
+  Proof.
+    iIntros (Hi1 Hi2) "H1 H2".
+    assert (is_Some (l1 !! i)) as [v1 Hv1] by by rewrite lookup_lt_is_Some.
+    assert (is_Some (l2 !! i)) as [v2 Hv2] by by rewrite lookup_lt_is_Some.
+    iDestruct (mono_list_lb_valid with "H1 H2") as "[%Pref|%Pref]";
+      eapply prefix_lookup in Pref; eauto; rewrite Pref.
+    - by rewrite Hv1.
+    - by rewrite Hv2.
   Qed.
 
   Lemma mono_list_idx_agree γ i a1 a2 :

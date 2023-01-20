@@ -20,8 +20,12 @@ Ltac encode_agree Hγ :=
       end
   end.
 
-Section heap.
-  Context `{!heapGS Σ} (N : namespace).
+Section array.
+  Context `{!heapGS Σ}.
+
+  Global Instance array_persistent p l :
+    Persistent (p ↦∗□ l).
+  Proof. apply big_sepL_persistent, _. Qed.
 
   Lemma array_agree x l1 l2 dq1 dq2 :
     length l1 = length l2 →
@@ -41,7 +45,23 @@ Section heap.
     iDestruct (mapsto_agree with "xl1 xl2") as "<-".
     by iDestruct ("HInd" $! l2 with "[] [x1] [x2]") as "<-".
   Qed.
-End heap.
+
+  Lemma array_persist x dq l :
+    x ↦∗{dq} l ==∗ x ↦∗□ l.
+  Proof.
+    iInduction l as [|v l] "HInd" using rev_ind; auto.
+    rewrite array_app array_singleton.
+    iIntros "[x1 x2]".
+    iMod ("HInd" with "x1") as "x1".
+    iMod (mapsto_persist with "x2") as "x2".
+    rewrite /array big_sepL_snoc. by iFrame.
+  Qed.
+End array.
+
+Section neq.
+  Lemma neq_symm (n m : nat) : n ≠ m ↔ m ≠ n.
+  Proof. lia. Qed.
+End neq.
 
 Section modulo.
   Lemma rem_mod_eq (x y : nat) : (0 < y) → (x `rem` y)%Z = x `mod` y.
@@ -116,9 +136,60 @@ Section list.
     end.
   Definition circ_slice l i j := circ_slice_d l i (j-i).
 
-  Lemma circ_slice_to_nil l i j : i ≥ j → circ_slice l i j = [].
+  Lemma circ_slice_nil l i j : i ≥ j → circ_slice l i j = [].
   Proof.
     unfold circ_slice. intros H. by replace (j-i) with 0 by lia.
+  Qed.
+
+  Lemma circ_slice_singleton l i :
+    length l ≠ 0 →
+    ∃ v, mod_get l i = Some v ∧ circ_slice l i (S i) = [v].
+  Proof.
+    intros Hl.
+    destruct (mod_get_is_Some l i) as [v Hv]; auto.
+    unfold circ_slice, circ_slice_d; simpl.
+    replace (S i - i) with 1; try lia. rewrite Hv.
+    by exists v.
+  Qed.
+
+  Lemma circ_slice_length l i j :
+    length l ≠ 0 →
+    length (circ_slice l i j) = j - i.
+  Proof.
+    unfold circ_slice. intros Hlen.
+    remember (j-i) as ji eqn:Hji. revert ji i j Hji.
+    induction ji as [|len IHji]; intros i j Hji; auto. simpl.
+    destruct (mod_get_is_Some l i) as [x Hx]; auto. rewrite Hx.
+    simpl. rewrite (IHji (S i) j); lia.
+  Qed.
+
+  Lemma circ_slice_split m l i j :
+    length l ≠ 0 → i ≤ m ≤ j →
+    circ_slice l i j = circ_slice l i m ++ circ_slice l m j.
+  Proof.
+    unfold circ_slice. intros Hlen Hm.
+    remember (m-i) as dif eqn:Hdif. revert dif i m j Hm Hdif.
+    induction dif as [|dif IHdif]; intros i m j Hm Hdif; simpl.
+    { replace m with i; by try lia. }
+    destruct (j-i) eqn:Eji; try lia. simpl.
+    destruct (mod_get_is_Some l i) as [x Hx]; auto. rewrite Hx.
+    assert (j - S i = n) as Eji' by lia.
+    specialize (IHdif (S i) m j). rewrite Eji' in IHdif.
+    rewrite IHdif; auto. all: lia.
+  Qed.
+
+  Lemma circ_slice_split_eq m l l' i j :
+    length l ≠ 0 → length l' ≠ 0 →
+    i ≤ m ≤ j →
+    circ_slice l i j = circ_slice l' i j →
+    circ_slice l i m = circ_slice l' i m ∧
+    circ_slice l m j = circ_slice l' m j.
+  Proof.
+    intros Hlen Hlen' Hm Heqs.
+    rewrite (circ_slice_split m l) in Heqs; auto.
+    rewrite (circ_slice_split m l') in Heqs; auto.
+    apply app_inj_1 in Heqs; auto.
+    do 2 (rewrite circ_slice_length; auto).
   Qed.
 
   Lemma circ_slice_extend_right l i j v :
