@@ -129,19 +129,31 @@ Section list.
     end.
   Definition circ_slice l i j := circ_slice_d l i (j-i).
 
-  Lemma circ_slice_to_nil l i j : i ≥ j → circ_slice l i j = [].
+  Lemma circ_slice_nil l i j : i ≥ j → circ_slice l i j = [].
   Proof.
     unfold circ_slice. intros H. by replace (j-i) with 0 by lia.
   Qed.
+
+  Lemma circ_slice_singleton l i :
+    ∃ v, mod_get l i = Some v ∧ circ_slice l i (S i) = [v].
+  Admitted.
 
   Lemma circ_slice_length l i j :
     i ≤ j → length (circ_slice l i j) = j - i.
   Proof.
   Admitted.
 
-  Lemma circ_slice_split l i m j :
+  Lemma circ_slice_split m l i j :
     i ≤ m ≤ j →
     circ_slice l i j = circ_slice l i m ++ circ_slice l m j.
+  Proof.
+  Admitted.
+
+  Lemma circ_slice_split_eq m l l' i j :
+    i ≤ m ≤ j →
+    circ_slice l i j = circ_slice l' i j →
+    circ_slice l i m = circ_slice l' i m ∧
+    circ_slice l m j = circ_slice l' m j.
   Proof.
   Admitted.
 

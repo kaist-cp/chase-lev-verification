@@ -92,8 +92,7 @@ Section proof.
 
   Definition own_circle (ca : val) (l : list val) : iProp :=
     ∃ (arr : loc),
-      ⌜ca = (#arr, #(length l))%V⌝ ∗
-      arr ↦∗{#1/2} l.
+      ⌜ca = (#arr, #(length l))%V⌝ ∗ arr ↦∗{#1/2} l.
   
   Ltac extended_auto :=
     eauto;
@@ -109,6 +108,13 @@ Section proof.
   Ltac fr :=
     repeat iModIntro; repeat iSplit; extended_auto; repeat iExists _;
     iFrame; eauto.
+  
+  Lemma own_circle_persist ca l :
+    own_circle ca l ==∗ persistent_circle ca l.
+  Proof.
+    iIntros "[%arr [%Eq arr↦]]".
+    iMod (array_persist with "arr↦") as "arr↦". fr.
+  Qed.
 
   Lemma circle_content_exclusive γ frag1 frag2 :
     circle_content γ frag1 -∗ circle_content γ frag2 -∗ False.
@@ -117,6 +123,7 @@ Section proof.
     by iDestruct (own_valid_2 with "C1 C2") as %?%auth_frag_op_valid_1.
   Qed.
 
+  (* TODO move these two to helpers *)
   Lemma own_ea_agree γ a b :
     own γ (●E a) -∗ own γ (◯E b) -∗ ⌜a = b⌝.
   Proof.
@@ -261,7 +268,7 @@ Section proof.
     { (* end loop *)
       iMod "AU" as (_) "[Cont [_ Commit]]".
       iMod ("Commit" $! l' with "[Cont] [arr↦ arr'↦]") as "HΦ"; fr.
-      2: fr. repeat rewrite circ_slice_to_nil...
+      2: fr. repeat rewrite circ_slice_nil...
     }
   
     (* read b' *)
