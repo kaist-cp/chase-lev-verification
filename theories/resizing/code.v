@@ -7,6 +7,23 @@ From iris.heap_lang Require Import proofmode notation.
 From iris.prelude Require Import options.
 From chase_lev.resizing Require Import helpers spec.
 
+Local Ltac extended_auto :=
+  eauto;
+  try rewrite Nat2Z.id;
+  try rewrite replicate_length;
+  try rewrite Qp.half_half;
+  try by (
+    repeat iNext; repeat iIntros; repeat intros;
+    try case_decide; try iPureIntro;
+    try rewrite lookup_lt_is_Some;
+    try lia; done
+  ).
+Local Ltac fr :=
+  repeat iIntros; repeat iSplit; extended_auto;
+  repeat iIntros; repeat iExists _;
+  try iFrame "arr↦"; try iFrame "arr↦1"; try iFrame "arr↦2"; 
+  iFrame; eauto.
+
 Section grow.
   Context `{!heapGS Σ} (N : namespace).
   Definition circ_access : val :=
@@ -20,7 +37,7 @@ Section grow.
         let: "b'" := "b" - #1 in
         let: "v" := !(circ_access "arr" "b'" "sz") in
         (circ_access "narr" "b'" "nsz") <- "v" ;;
-        "grow_rec" "circle" "ncirc" "t" "b'"
+        "grow_rec" "arr" "sz" "narr" "nsz" "t" "b'"
       )
       else #().
   
@@ -32,32 +49,84 @@ Section grow.
       grow_circle_rec (Fst "circle") "sz" "narr" "nsz" "t" "b" ;;
       ("narr", "nsz").
 
-      (*
   Lemma grow_circle_rec_spec (arr arr' : loc)
   (l l' : list val) (n m t b : nat) :
-    True -∗
-    <<< ∀∀ (l : list val), ⌜length l = n⌝ ∗ arr ↦∗ l >>>
-      grow_circle_rec #arr #n #arr' #m #t #b @ ↑N
-    <<< ∃∃ (l' : list val),
-      ⌜length l' = m⌝ ∗ arr' ↦∗ l',
-      RET #()
-    >>>.
-      Lemma grow_circle_rec_spec γ ca l
-  (arr' : loc) (l' : list val) (t b : nat) :
-    0 < length l ≤ length l' →
-    t ≤ b < t + length l →
-    is_circle γ ca -∗ own_circle ca l -∗
+    length l = n → length l' = m →
+    0 < n < m →
+    t ≤ b < t + n →
     arr' ↦∗ l' -∗
-    <<< ∀∀ (_ : ()), circle_content γ l >>>
-      grow_circle_rec ca (#arr', #(length l'))%V #t #b @ ↑N
+    <<< ∀∀ (_ : ()), arr ↦∗ l >>>
+      grow_circle_rec #arr #n #arr' #m #t #b @ ∅
     <<< ∃∃ (l2' : list val),
-      ⌜length l' = length l2'⌝ ∗
+      ⌜length l2' = m⌝ ∗
       ⌜circ_slice l t b = circ_slice l2' t b⌝ ∗
       ⌜∀ i, b ≤ i < t + length l → mod_get l' i = mod_get l2' i⌝ ∗
-      circle_content γ l,
-    RET #(), own_circle ca l ∗ arr' ↦∗ l2' >>>.
-    *)
+      arr ↦∗ l,
+      RET #(), arr' ↦∗ l2'
+    >>>.
+  Proof with extended_auto.
+    iIntros "%Hn %Hm %Hlen %Hlt A'" (Φ) "AU".
+      iRevert "A' AU". iRevert (b l' Hm Hlt).
+    iLöb as "IH". iIntros (b l') "%Hm %Hlt A' AU".
+    wp_lam. unfold circ_access. wp_pures.
+
+    case_bool_decide; last first; wp_pures.
+    { (* end loop *)
+      iMod "AU" as (_) "[Cont [_ Commit]]".
+      iMod ("Commit" $! l' with "[Cont]") as "HΦ"; fr.
+      1: repeat rewrite circ_slice_nil...
+      iApply "HΦ"...
+    }
   
+    (* read b *)
+    destruct b as [|b]...
+    replace (Z.of_nat (S b) - 1)%Z with (Z.of_nat b)...
+      rewrite rem_mod_eq...
+    wp_bind (! _)%E.
+      iMod "AU" as (_) "[A [Abort _]]".
+      destruct (mod_get_is_Some l b) as [v Hv]...
+      wp_apply (wp_load_offset with "A"). 1: rewrite -Hn...
+      iIntros "A".
+      iMod ("Abort" with "A") as "AU". 1: fr.
+    iModIntro. wp_pures.
+
+    (* write b *)
+    wp_bind (_ <- _)%E.
+      rewrite rem_mod_eq...
+      destruct (mod_get_is_Some l' b) as [v' Hv']...
+      iApply (wp_store_offset with "A'"). 1: rewrite -Hm...
+    iIntros "!> A'". wp_pures.
+    
+    (* recurse *)
+    iApply ("IH" $! b (<[b `mod` m:=v]> l') with "[] [] [A']")...
+      1: rewrite insert_length...
+    iAuIntro.
+    rewrite /atomic_acc /=.
+      iMod "AU" as (_) "[Cont AC]".
+      iModIntro. iExists (). iFrame "Cont".
+      iSplit.
+      { iIntros "Cont".
+        iDestruct "AC" as "[Abort _]".
+        iMod ("Abort" with "Cont") as "AU". fr. }
+    iIntros (l2') "(%Hm' & %Heqs & %Hlast & A)".
+      iDestruct "AC" as "[_ Commit]".
+    iMod ("Commit" $! l2' with "[A]") as "HΦ".
+    { iFrame. iPureIntro. repeat split...
+      - rewrite (circ_slice_shrink_right _ _ _ v)...
+        2: replace (S b - 1) with b...
+        rewrite (circ_slice_shrink_right _ _ (S b) v)...
+        all: replace (S b - 1) with b...
+        + rewrite Heqs...
+        + rewrite -Hlast... unfold mod_get.
+          rewrite insert_length Hm list_lookup_insert...
+          rewrite Hm. apply Nat.mod_upper_bound...
+      - intros i Hi. rewrite -Hlast... unfold mod_get.
+        rewrite insert_length Hm list_lookup_insert_ne...
+        apply close_mod_neq...
+    }
+    iIntros "!> A'". iApply "HΦ"...
+  Qed.
+
   Lemma grow_circle_spec (arr : loc) (l : list val) (t b : nat) :
     0 < length l →
     t ≤ b < t + length l → ⊢
@@ -66,9 +135,32 @@ Section grow.
     <<< ∃∃ (arr' : loc) (l' : list val),
       ⌜length l < length l'⌝ ∗
       ⌜circ_slice l t b = circ_slice l' t b⌝ ∗
-      arr ↦∗ l ∗ arr' ↦∗ l',
-    RET (#arr', #(length l')) >>>.
-  Admitted.
+      arr ↦∗ l,
+    RET (#arr', #(length l')), arr' ↦∗ l' >>>.
+  Proof with extended_auto.
+    iIntros "%Hlen %Hlt" (Φ) "AU".
+    wp_lam. wp_pures.
+    wp_alloc arr' as "A'"... wp_pures.
+    replace (Z.to_nat (2 * Z.of_nat (length l))) with (2 * length l)...
+    replace (2 * Z.of_nat (length l))%Z with (Z.of_nat (2 * length l))...
+
+    (* make l' *)
+    awp_apply (grow_circle_rec_spec with "[A']")...
+    unfold atomic_acc.
+    iMod "AU" as (_) "[A AC]".
+    iModIntro. iExists (). fr. iSplit.
+    { iIntros "A". iDestruct "AC" as "[Abort _]".
+      iApply ("Abort" with "A").
+    }
+
+    iIntros (l2') "(%Hlen' & %Heqs & %Hrest & A)".
+      iDestruct "AC" as "[_ Commit]".
+      iMod ("Commit" $! arr' l2' with "[A]") as "HΦ"; fr.
+    iIntros "!> A'".
+    wp_pures. iModIntro.
+    replace (length l + (length l + 0)) with (length l2').
+    iApply "HΦ". fr.
+  Qed.
 End grow.
 
 Section code.
@@ -156,23 +248,6 @@ Definition dequeΣ : gFunctors :=
 
 Global Instance subG_dequeΣ {Σ} : subG dequeΣ Σ → dequeG Σ.
 Proof. solve_inG. Qed.
-
-Local Ltac extended_auto :=
-  eauto;
-  try rewrite Nat2Z.id;
-  try rewrite replicate_length;
-  try rewrite Qp.half_half;
-  try by (
-    repeat iNext; repeat iIntros; repeat intros;
-    try case_decide; try iPureIntro;
-    try rewrite lookup_lt_is_Some;
-    try lia; done
-  ).
-Local Ltac fr :=
-  repeat iIntros; repeat iSplit; extended_auto;
-  repeat iIntros; repeat iExists _;
-  try iFrame "arr↦"; try iFrame "arr↦1"; try iFrame "arr↦2"; 
-  iFrame; eauto.
 
 Section dqst.
   Context `{!heapGS Σ, !dequeG Σ}.
@@ -835,12 +910,12 @@ Section proof.
           { iIntros "arr↦". iDestruct "arr↦" as "[AOwn arr↦]".
             iCombine "C↦ arr↦" as "A".
             iSplitL "Abst A Top Bot". 2: fr. iExists _,_,l. fr. }
-          iIntros (arrX lX) "(%HlenX & %Heqs & arr↦ & arrX↦)".
+          iIntros (arrX lX) "(%HlenX & %Heqs & arr↦)".
           iDestruct "arr↦" as "[AOwn arr↦]".
         iCombine "C↦ arr↦" as "A".
       iModIntro. iSplitL "Abst A Top Bot".
       { iExists _,_,l. fr. }
-      iIntros "_". wp_pures.
+      iIntros "arrX↦". wp_pures.
 
       (* Y. replace array *)
       wp_bind (_ <- _)%E.

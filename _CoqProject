@@ -17,7 +17,5 @@ theories/circular/spec.v
 theories/circular/code.v
 
 theories/resizing/helpers.v
-theories/resizing/spec_circle.v
-theories/resizing/code_circle.v
 theories/resizing/spec.v
 theories/resizing/code.v
