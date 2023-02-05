@@ -56,6 +56,24 @@ Section array.
     iMod (mapsto_persist with "x2") as "x2".
     rewrite /array big_sepL_snoc. by iFrame.
   Qed.
+
+  Lemma twp_persistent_load_offset s E l (off : nat) vs v :
+    vs !! off = Some v →
+    [[{ l ↦∗□ vs }]] ! #(l +ₗ off) @ s; E [[{ RET v; True }]].
+  Proof.
+    iIntros (Hlookup Φ) "#Hl HΦ".
+    iDestruct (update_array l _ _ _ _ Hlookup with "Hl") as "[Hl1 Hl2]".
+    iApply (twp_load with "Hl1"). iIntros "_". by iApply "HΦ".
+  Qed.
+
+  Lemma wp_persistent_load_offset s E l (off : nat) vs v :
+    vs !! off = Some v →
+    {{{ l ↦∗□ vs }}} ! #(l +ₗ off) @ s; E {{{ RET v; True }}}.
+  Proof.
+    iIntros (? Φ) "#H HΦ". iApply (twp_wp_step with "HΦ").
+    iApply (twp_persistent_load_offset with "H"); [by eauto..|].
+    iIntros "_ HΦ". by iApply "HΦ".
+  Qed.
 End array.
 
 Section neq.
