@@ -1135,45 +1135,38 @@ Section proof.
     replace (if pop2 then LitInt (Z.of_nat b2 - 1) else LitInt (Z.of_nat b2))
       with (LitInt (Z.of_nat (if pop2 then (b2 - 1) else b2))).
       2: { destruct pop2... replace (Z.of_nat b2 - 1)%Z with (Z.of_nat (b2 - 1))... }
-remember (if pop2 then (b2 - 1)%nat else b2) as bp2.
-
+    wp_pures.
     case_bool_decide as Hif; wp_pures.
     { iMod "AU" as (l) "[Cont [_ Commit]]".
       iMod ("Commit" $! l NONEV with "[Cont]") as "Φ"...
       iApply "Φ"... }
-    assert (t1 < b2) as Htb12. 1: destruct Pop2...
+    assert (t1 < b2) as Htb12. 1: destruct pop2...
 
     (* 4. get_circle *)
     rewrite rem_mod_eq...
     wp_bind (! _)%E.
-      iInv "Inv" as (era4 ca4 l4 t4 b4) "Invs".
+      iInv "Inv" as (era4 ca4 l4 t4 b4 pop4) ">Invs".
         iDestruct "Invs" as "(%Htb4 & ● & Era & Dqst & C & A & T & B)".
-      iDestruct "Abst" as "(Dqst & Q & Era)".
-        iDestruct (dqst_get_frag with "Dqst") as "#F4".
-        iDestruct (dqst_get_lb with "Dqst F3") as "%Lb34".
-      iCombine "Dqst Q Era" as "Abst".
+      iDestruct (dqst_get_frag with "Dqst") as "#F4".
+      iDestruct (dqst_get_lb with "Dqst F3") as "%Lb34".
     destruct (decide (era3 = era4)) as [eqγ|neqγ].
     - (* array was not archived *)
       subst era4.
         iDestruct (dqst_frag_agree with "F3 F4") as "[%H34 %Hlen]".
           subst ca4. rewrite Hlen. clear Hlen.
-        iDestruct "A" as "[C↦ arr↦]".
-          destruct (mod_get_is_Some l4 t1) as [v Hv]...
-          iApply (wp_load_offset with "arr↦")...
-          iIntros "!> arr↦".
-        iCombine "C↦ arr↦" as "A".
+        destruct (mod_get_is_Some l4 t1) as [v Hv]...
+        iApply (wp_load_offset with "A")...
+        iIntros "!> A".
       iModIntro. iSplitL "● Era Dqst C A T B".
       { iExists _,_,l4. fr. }
       wp_pures.
       
       (* 5. CAS *)
       wp_bind (CmpXchg _ _ _)%E.
-      iInv "Inv" as (era5 ca5 l5 t5 b5) "Invs".
+      iInv "Inv" as (era5 ca5 l5 t5 b5 pop5) ">Invs".
         iDestruct "Invs" as "(%Htb5 & ● & Era & Dqst & C & A & T & B)".
-        iDestruct "Abst" as "(Dqst & Q & Era)".
-          iDestruct (dqst_get_frag with "Dqst") as "#F5".
-          iDestruct (dqst_get_lb with "Dqst F4") as "%Lb45".
-        iCombine "Dqst Q Era" as "Abst".
+        iDestruct (dqst_get_frag with "Dqst") as "#F5".
+        iDestruct (dqst_get_lb with "Dqst F4") as "%Lb45".
       destruct (decide (t1 = t5)); last first.
       { (* fail *)
         wp_cmpxchg_fail. { intro NO. inversion NO... }
@@ -1194,32 +1187,25 @@ remember (if pop2 then (b2 - 1)%nat else b2) as bp2.
         { replace (mod_get l5 t1) with (mod_get l4 t1)...
           apply Lb45... }
       iMod "AU" as (lau) "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq'' γpop'' γera'' γdqst'') "[%Enc'' ◯]".
-          encode_agree Enc'.
-        iDestruct "Abst" as "(Dqst & Q & Era)".
-          iDestruct (own_ea_agree with "Q ◯") as "%Hlau". subst lau.
-          rewrite (circ_slice_shrink_left _ _ _ v)...
-          iMod (own_ea_update (circ_slice l5 (S t1) b5)
-            with "Q ◯") as "[Q ◯]".
-          iMod (dqst_auth_update with "Dqst") as "Dqst"...
-        iCombine "Dqst Q Era" as "Abst".
+        iDestruct "Cont" as (γq' γera' γdqst') "[%Enc' ◯]". encode_agree Enc'.
+        iDestruct (own_ea_agree with "● ◯") as "%Hlau". subst lau.
+        rewrite (circ_slice_shrink_left _ _ _ v)...
+        iMod (own_ea_update (circ_slice l5 (S t1) b5)
+          with "● ◯") as "[● ◯]".
+        iMod (dqst_auth_update with "Dqst") as "Dqst"...
       iMod ("Commit" $! (circ_slice l5 (S t1) b5) (SOMEV v)
         with "[◯]") as "HΦ"; fr.
       iModIntro. iSplitL "● Era Dqst C A T B".
       { iExists _,_,l5. fr. fr. }
       wp_pures. iApply "HΦ"...
     - (* array was archived *)
-      iDestruct "Abst" as "(Dqst & ● & Era)".
-        iDestruct (dqst_get_archived with "Dqst F3")
-          as (l' t' b') "#Arch"...
-      iCombine "Dqst ● Era" as "Abst".
+      iDestruct (dqst_get_archived with "Dqst F3")
+        as (l' t' b') "#Arch"...
       iDestruct (dqst_archived_get_lb with "Arch F3") as "%Ht3'".
-        iDestruct (dqst_archived_get_frag with "Arch") as "F'".
-        iDestruct "Abst" as "(Dqst & ● & Era)".
-          iDestruct (dqst_get_lb with "Dqst F'") as "%Lb'4".
-        iCombine "Dqst ● Era" as "Abst".
-        iDestruct (dqst_frag_agree with "F3 F'") as "[_ %Hl3']".
-        rewrite Hl3'. destruct (mod_get_is_Some l' t1) as [v Hv]...
+      iDestruct (dqst_archived_get_frag with "Arch") as "F'".
+      iDestruct (dqst_get_lb with "Dqst F'") as "%Lb'4".
+      iDestruct (dqst_frag_agree with "F3 F'") as "[_ %Hl3']".
+      rewrite Hl3'. destruct (mod_get_is_Some l' t1) as [v Hv]...
         iDestruct (dqst_archived_get_array with "Arch") as "Parr".
       iApply (wp_persistent_load_offset with "Parr")...
       iIntros "!> _ !>". iSplitL "● Era Dqst C A T B".
@@ -1228,12 +1214,10 @@ remember (if pop2 then (b2 - 1)%nat else b2) as bp2.
 
       (* 5. CAS *)
       wp_bind (CmpXchg _ _ _)%E.
-      iInv "Inv" as (era5 ca5 l5 t5 b5) "Invs".
+      iInv "Inv" as (era5 ca5 l5 t5 b5 pop5) ">Invs".
         iDestruct "Invs" as "(%Htb5 & ● & Era & Dqst & C & A & T & B)".
-        iDestruct "Abst" as "(Dqst & Q & Era)".
-          iDestruct (dqst_get_frag with "Dqst") as "#F5".
-          iDestruct (dqst_get_lb with "Dqst F4") as "%Lb45".
-        iCombine "Dqst Q Era" as "Abst".
+        iDestruct (dqst_get_frag with "Dqst") as "#F5".
+        iDestruct (dqst_get_lb with "Dqst F4") as "%Lb45".
       destruct (decide (t1 = t5)); last first.
       { (* fail *)
         wp_cmpxchg_fail. { intro NO. inversion NO... }
@@ -1256,15 +1240,12 @@ remember (if pop2 then (b2 - 1)%nat else b2) as bp2.
           - rewrite -Hv. symmetry. apply Lb'4...
           - apply Lb45... }
       iMod "AU" as (lau) "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq'' γpop'' γera'' γdqst'') "[%Enc'' ◯]".
-          encode_agree Enc'.
-        iDestruct "Abst" as "(Dqst & Q & Era)".
-          iDestruct (own_ea_agree with "Q ◯") as "%Hlau". subst lau.
-          rewrite (circ_slice_shrink_left _ _ _ v)...
-          iMod (own_ea_update (circ_slice l5 (S t1) b5)
-            with "Q ◯") as "[Q ◯]".
-          iMod (dqst_auth_update with "Dqst") as "Dqst"...
-        iCombine "Dqst Q Era" as "Abst".
+        iDestruct "Cont" as (γq' γera' γdqst') "[%Enc' ◯]". encode_agree Enc'.
+        iDestruct (own_ea_agree with "● ◯") as "%Hlau". subst lau.
+        rewrite (circ_slice_shrink_left _ _ _ v)...
+        iMod (own_ea_update (circ_slice l5 (S t1) b5)
+          with "● ◯") as "[● ◯]".
+        iMod (dqst_auth_update with "Dqst") as "Dqst"...
       iMod ("Commit" $! (circ_slice l5 (S t1) b5) (SOMEV v)
         with "[◯]") as "HΦ"; fr.
       iModIntro. iSplitL "● Era Dqst C A T B".
