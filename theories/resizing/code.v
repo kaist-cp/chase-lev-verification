@@ -1093,19 +1093,17 @@ Section proof.
       RET ov >>>.
   Proof with extended_auto.
     iIntros "#Is" (Φ) "AU".
-    iDestruct "Is" as (γq' γera' γdqst') "Inv".
-      iDestruct "Inv" as (C' top' bot') "Inv".
-      iDestruct "Inv" as "(%Q & %Enc' & Inv)".
+    iDestruct "Is" as (γq γera γdqst) "Inv".
+      iDestruct "Inv" as (C top bot) "Inv".
+      iDestruct "Inv" as "(%Q & %Enc & Inv)".
       subst q.
     wp_lam. unfold code.arr, code.top, code.bot, circ_access. wp_pures.
 
     (* 1. load top *)
     wp_bind (! _)%E.
-      iInv "Inv" as (era1 ca1 l1 t1 b1) "Invs".
+      iInv "Inv" as (era1 ca1 l1 t1 b1 pop1) ">Invs".
         iDestruct "Invs" as "(%Htb1 & ● & Era & Dqst & C & A & T & B)".
-      iDestruct "Abst" as "(Dqst & Q & Era)".
-        iDestruct (dqst_get_frag with "Dqst") as "#F1".
-      iCombine "Dqst Q Era" as "Abst".
+      iDestruct (dqst_get_frag with "Dqst") as "#F1".
       wp_load.
     iModIntro. iSplitL "● Era Dqst C A T B".
     { iExists _,_,l1. fr. }
@@ -1113,33 +1111,32 @@ Section proof.
 
     (* 2. load bot *)
     wp_bind (! _)%E.
-      iInv "Inv" as (era2 ca2 l2 t2 b2) "Invs".
+      iInv "Inv" as (era2 ca2 l2 t2 b2 pop2) ">Invs".
         iDestruct "Invs" as "(%Htb2 & ● & Era & Dqst & C & A & T & B)".
-      iDestruct "Abst" as "(Dqst & Q & Era)".
-        iDestruct (dqst_get_frag with "Dqst") as "#F2".
-        iDestruct (dqst_get_lb with "Dqst F1") as "%Lb12".
-      iCombine "Dqst Q Era" as "Abst".
-      iDestruct "Bot" as (Pop2) "[bot↦ Pop]". wp_load.
-      iCombine "bot↦ Pop" as "Bot".
+      iDestruct (dqst_get_frag with "Dqst") as "#F2".
+      iDestruct (dqst_get_lb with "Dqst F1") as "%Lb12".
+      wp_load.
     iModIntro. iSplitL "● Era Dqst C A T B".
     { iExists _,_,l2. fr. }
     wp_pures.
 
     (* 3. load array *)
     wp_bind (! _)%E.
-      iInv "Inv" as (era3 ca3 l3 t3 b3) "Invs".
+      iInv "Inv" as (era3 ca3 l3 t3 b3 pop3) ">Invs".
         iDestruct "Invs" as "(%Htb3 & ● & Era & Dqst & C & A & T & B)".
-      iDestruct "Abst" as "(Dqst & Q & Era)".
-        iDestruct (dqst_get_frag with "Dqst") as "#F3".
-        iDestruct (dqst_get_lb with "Dqst F2") as "%Lb23".
-      iCombine "Dqst Q Era" as "Abst".
-      iDestruct "A" as "[C↦ arr↦]". wp_load.
-      iCombine "C↦ arr↦" as "A".
+      iDestruct (dqst_get_frag with "Dqst") as "#F3".
+      iDestruct (dqst_get_lb with "Dqst F2") as "%Lb23".
+      wp_load.
     iModIntro. iSplitL "● Era Dqst C A T B".
     { iExists _,_,l3. fr. }
     wp_pures.
 
     (* no chance to steal *)
+    replace (if pop2 then LitInt (Z.of_nat b2 - 1) else LitInt (Z.of_nat b2))
+      with (LitInt (Z.of_nat (if pop2 then (b2 - 1) else b2))).
+      2: { destruct pop2... replace (Z.of_nat b2 - 1)%Z with (Z.of_nat (b2 - 1))... }
+remember (if pop2 then (b2 - 1)%nat else b2) as bp2.
+
     case_bool_decide as Hif; wp_pures.
     { iMod "AU" as (l) "[Cont [_ Commit]]".
       iMod ("Commit" $! l NONEV with "[Cont]") as "Φ"...
