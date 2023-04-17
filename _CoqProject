@@ -6,7 +6,6 @@
 -arg -w -arg -redundant-canonical-projection
 
 theories/atomic.v
-theories/mono_nat.v
 theories/mono_list.v
 
 theories/linear/helpers.v	

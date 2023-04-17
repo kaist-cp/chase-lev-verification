@@ -1,8 +1,8 @@
 From iris.algebra Require Import list excl_auth mono_nat.
 From iris.bi Require Import derived_laws_later.
 From iris.bi.lib Require Import fractional.
-From iris.base_logic.lib Require Import invariants ghost_var.
-From chase_lev Require Import mono_list mono_nat atomic.
+From iris.base_logic.lib Require Import invariants ghost_var mono_nat.
+From chase_lev Require Import mono_list atomic.
 From iris.heap_lang Require Import proofmode notation.
 From iris.prelude Require Import options.
 From chase_lev.resizing Require Import helpers spec.
@@ -287,7 +287,7 @@ Section dqst.
     ⌜1 ≤ t ≤ b ∧ b < t + length l ∧ length l ≠ 0⌝ ∗
     (* top-bot profile *)
     ( mono_nat_lb_own γtb (top_bot_state t b) ∗
-      mono_nat_persistent γtbe (top_bot_state t b)
+      mono_nat_auth_own γtbe 1 (top_bot_state t b)
     ) ∗
     (* top element preservation *)
     ( ∃ (elts : list val),
@@ -295,15 +295,10 @@ Section dqst.
       ⌜t = b ∨ mod_get l t = elts !! t⌝
     ) ∗
     (* museum of past gnames and circles *)
-    ( ∃ (room : list (gname * loc * nat))
-        (museum : list (list val * nat * nat)),
+    ( ∃ (room : list (gname * loc * nat)),
       ⌜room !! era = Some (γtbe, arr, length l)⌝ ∗
-      ⌜museum !! era = Some (l, t, b)⌝ ∗
-      mono_list_lb_own γroom room ∗
-      mono_list_lb_own γmus museum
-    ) ∗
-    (* persistent circle *)
-    arr ↦∗□ l.
+      mono_list_lb_own γroom room
+    ).
 
   Definition dqst_auth (γdqst : dqst_gnames) (era : nat)
   (arr : loc) (l : list val) (t b : nat) : iProp :=
@@ -324,13 +319,12 @@ Section dqst.
         else (length elts = S t ∧ mod_get l t = elts !! t)⌝
     ) ∗
     (* museum of past gnames and circles *)
-    ( ∃ (proom : list (gname * loc * nat))
-        (museum : list (list val * nat * nat)),
-      ⌜length proom = era ∧ length museum = era⌝ ∗
+    ( ∃ (proom : list (gname * loc * nat)),
+      ⌜length proom = era⌝ ∗
       mono_list_auth_own γroom 1 (proom ++ [(γtbe, arr, length l)]) ∗
-      mono_list_auth_own γmus 1 museum ∗
-      [∗ list] i ↦ gcl ; ltbi ∈ proom ; museum, (
-        dqst_archived γdqst i (gcl.1.2) (ltbi.1.1) (ltbi.1.2) (ltbi.2)
+      [∗ list] i ↦ gcl ∈ proom, ( ∃ l' t' b',
+        dqst_archived γdqst i (gcl.1.2) l' t' b' ∗
+        (gcl.1.2) ↦∗ l'
       )
     ).
 
@@ -348,10 +342,6 @@ Section dqst.
   
   Global Instance dqst_archived_timeless γdqst era ca l t b :
     Timeless (dqst_archived γdqst era ca l t b).
-  Proof. desγ γdqst. apply _. Qed.
-
-  Global Instance dqst_archived_persistent γdqst era ca l t b :
-    Persistent (dqst_archived γdqst era ca l t b).
   Proof. desγ γdqst. apply _. Qed.
 
   Global Instance dqst_auth_timeless γdqst era ca l t b :
@@ -405,9 +395,7 @@ Section dqst.
     iIntros "Auth".
       iDestruct "Auth" as (γtbeO) "(%HltO & [tbO tbeO] & eltO & museO)".
       iDestruct "eltO" as (elts) "[Elt %Heltslen]".
-      iDestruct "museO" as (room museum) "museO".
-      iDestruct "museO" as "([%Hroomlen %Hmuslen] & museO)".
-      iDestruct "museO" as "(Room & Museum & Archives)".
+      iDestruct "museO" as (room) "(%Hroomlen & Room & Archives)".
     iDestruct (mono_nat_lb_own_get with "tbO") as "#lb".
     iDestruct (mono_nat_lb_own_get with "tbeO") as "#lbe".
     iDestruct (mono_list_lb_own_get with "Elt") as "#eltlb".
@@ -423,14 +411,17 @@ Section dqst.
     era1 ≠ era2 →
     dqst_auth γdqst era1 ca1 l1 t1 b1 -∗
     dqst_frag γdqst era2 ca2 l2 t2 b2 -∗
-    ∃ l' t' b', dqst_archived γdqst era2 ca2 l' t' b'.
+    ∃ l' t' b',
+      dqst_archived γdqst era2 ca2 l' t' b' ∗
+      ca2 ↦∗ l' ∗
+      (dqst_archived γdqst era2 ca2 l' t' b' -∗
+        ca2 ↦∗ l' -∗
+        dqst_auth γdqst era1 ca1 l1 t1 b1).
   Proof with extended_auto.
     desγ γdqst.
     iIntros (Hneq) "Auth F".
       iDestruct "Auth" as (γtbeO) "(%HltO & tbO & eltO & museO)".
-      iDestruct "museO" as (room museum) "museO".
-      iDestruct "museO" as "([%Hroomlen %Hmuslen] & museO)".
-      iDestruct "museO" as "(Room & Museum & Archives)".
+      iDestruct "museO" as (room) "(%Hroomlen & Room & Archives)".
       iDestruct "F" as (γtbe) "(%Hlt & tb & elt & muse)".
       iDestruct "muse" as (room') "[%Hroom'2 Lb']".
     iDestruct (mono_list_auth_lb_valid with "Room Lb'") as "%Pref".
@@ -439,10 +430,11 @@ Section dqst.
     assert (era2 < era1) as Hera21.
     { apply lookup_lt_Some in Hroom'2.
       rewrite app_length Hroomlen in Hroom'2. simpl in Hroom'2... }
-    assert (is_Some (museum !! era2)) as [ltbera2 Hltbera2].
-    { rewrite lookup_lt_is_Some... }
     rewrite lookup_app_l in Hroom'2...
-    iDestruct (big_sepL2_lookup with "Archives") as "Arch2"...
+    iDestruct (big_sepL_lookup_acc with "Archives") as "[Arch Close]"...
+      iDestruct "Arch" as (l' t' b') "[Arch2 arr]".
+    iExists l'. fr. iIntros "Arch2 arr".
+    iSpecialize ("Close" with "[Arch2 arr]"). all: fr. fr.
   Qed.
 
   Lemma dqst_get_lb γdqst era1 ca1 l1 t1 b1
@@ -472,24 +464,14 @@ Section dqst.
     rewrite Hget Helts...
   Qed.
 
-  Lemma dqst_archived_get_array γdqst era ca l t b :
-    dqst_archived γdqst era ca l t b -∗
-    ca ↦∗□ l.
-  Proof.
-    desγ γdqst.
-    iIntros "Arc".
-    by iDestruct "Arc" as (γtbeA) "(_&_&_&_& pers)".
-  Qed.
-
   Lemma dqst_archived_get_frag γdqst era ca l t b :
     dqst_archived γdqst era ca l t b -∗
     dqst_frag γdqst era ca l t b.
   Proof.
     desγ γdqst.
     iIntros "Arc".
-      iDestruct "Arc" as (γtbeA) "(%Hlt & [tb tbe] & elt & muse & pers)".
-      iDestruct "muse" as (room museum) "(%Hroom & Hmuseum & Room & Museum)".
-    fr. fr. by iApply mono_nat_persistent_lb_own_get.
+      iDestruct "Arc" as (γtbeA) "(%Hlt & [tb tbe] & elt & muse)".
+    fr. fr. by iApply mono_nat_lb_own_get.
   Qed.
 
   Lemma dqst_archived_get_lb γdqst era ca l1 t1 b1 l2 t2 b2 :
@@ -502,16 +484,15 @@ Section dqst.
   Proof with extended_auto.
     desγ γdqst.
     iIntros "Arc F".
-      iDestruct "Arc" as (γtbeA) "(%Hlt1 & [tb1 tbe1] & elt1 & muse1 & pers1)".
-      iDestruct "muse1" as (room1 museum1) "muse1".
-      iDestruct "muse1" as "(%Hroom1 & %Hmuse1 & Lbroom1 & Lbmuse1)".
+      iDestruct "Arc" as ( γtbeA) "(%Hlt1 & [tb1 tbe1] & elt1 & muse1)".
+      iDestruct "muse1" as (room1) "[%Hroom1 Lbroom1]".
       iDestruct "F" as (γtbe) "(%Hlt2 & [tb2 tbe2] & elt2 & muse2)".
       iDestruct "muse2" as (room2) "[%Hroom2 Lbroom2]".
     iDestruct (mono_list_lb_lookup era with "Lbroom1 Lbroom2") as "%Hr12".
       { apply lookup_lt_Some in Hroom1... }
       { apply lookup_lt_Some in Hroom2... }
       rewrite Hroom1 Hroom2 in Hr12. injection Hr12 as [= <-].
-    iDestruct (mono_nat_persistent_lb_own_valid with "tbe1 tbe2") as "%Htb2".
+    iDestruct (mono_nat_lb_own_valid with "tbe1 tbe2") as "[%Hq %Htb2]".
     apply top_bot_state_le in Htb2 as [Hlt21 Htb2].
       fr. iIntros ([<- Hlt]). clear Hlt21.
       assert (t2 < b1) as Hlt21...
@@ -606,33 +587,22 @@ Section dqst.
     circ_slice l t b = circ_slice l' t b →
     ca ↦∗ l -∗
     dqst_auth γdqst era ca l t b ==∗
-    dqst_archived γdqst era ca l t b ∗
     dqst_auth γdqst (S era) ca' l' t b.
   Proof with extended_auto.
     desγ γdqst.
     iIntros (Hlong Heqs) "Own Auth".
       iDestruct "Auth" as (γtbeO) "(%HltO & [tbO tbeO] & eltO & museO)".
+      (*iDestruct "tbeO" as "[tbeO1 tbeO2]".*)
       iDestruct "eltO" as (elts) "[Elts %Heltslen]".
-      iDestruct "museO" as (proom museum) "museO".
-      iDestruct "museO" as "([%Hproomlen %Hmuslen] & museO)".
-      iDestruct "museO" as "(Room & Museum & Archives)".
+      iDestruct "museO" as (proom) "(%Hproomlen & Room & Archives)".
 
     (* archive *)
-    iMod (array_persist with "Own") as "#PC".
     iDestruct (mono_nat_lb_own_get with "tbO") as "#tb".
-    iMod (mono_nat_own_persist with "tbeO") as "#tbe".
     iDestruct (mono_list_lb_own_get with "Elts") as "#eltslb".
     iDestruct (mono_list_lb_own_get with "Room") as "#roomlb".
-    iMod (mono_list_auth_own_update_app [(l, t, b)] with "Museum") as "[Museum #muslb]".
-    iSplitR.
-    { iModIntro. fr. fr. all: fr.
-      - case_bool_decide... iRight. destruct Heltslen...
-      - rewrite lookup_app_r... replace (era - length proom) with 0...
-      - rewrite lookup_app_r... replace (era - length museum) with 0... 
-    }
 
     (* new era *)
-    iMod (mono_nat_own_alloc (top_bot_state t b)) as (γtbe') "[tbeO _]".
+    iMod (mono_nat_own_alloc (top_bot_state t b)) as (γtbe') "[tbe' _]".
     iMod (mono_list_auth_own_update_app [(γtbe', ca', length l')]
       with "Room") as "[Room #rlb]".
 
@@ -649,15 +619,12 @@ Section dqst.
     }
     fr. fr.
     { rewrite app_length -Hproomlen. simpl... }
-    { rewrite app_length -Hmuslen. simpl... }
-    simpl. fr. all: fr.
+    rewrite big_sepL_singleton. iExists l. fr. fr. fr. all: fr.
     - case_bool_decide... iRight. destruct Heltslen...
     - rewrite lookup_app_l...
       2: rewrite app_length; simpl...
       rewrite lookup_app_r...
       replace (length proom + 0 - length proom) with 0...
-    - rewrite lookup_app_r...
-      replace (length proom + 0 - length museum) with 0...
   Qed.
 End dqst.
 
@@ -858,7 +825,7 @@ Section proof.
           iDestruct (dqst_get_lb with "Dqst F1") as "%Ht1Y".
           apply (circ_slice_split_eq tY) in Heqs as Heqsd... destruct Heqsd as [_ HeqsR]...
         iCombine "AOwn A" as "A".
-          iMod (dqst_auth_archive arrX lX with "[A] [Dqst]") as "[#Arch Dqst]".
+          iMod (dqst_auth_archive arrX lX with "[A] [Dqst]") as "Dqst".
           2: apply HeqsR. all: eauto. 1: fr.
           iDestruct "AX" as "[AOwn A]".
         iCombine "COwn C" as "C". wp_store.
@@ -1199,18 +1166,17 @@ Section proof.
       { iExists _,_,l5. fr. fr. }
       wp_pures. iApply "HΦ"...
     - (* array was archived *)
-      iDestruct (dqst_get_archived with "Dqst F3")
-        as (l' t' b') "#Arch"...
-      iDestruct (dqst_archived_get_lb with "Arch F3") as "%Ht3'".
-      iDestruct (dqst_archived_get_frag with "Arch") as "F'".
+      iDestruct (dqst_get_archived with "Dqst F3") as (l' t' b') "[Arch [Arr Close]]"...
+        iDestruct (dqst_archived_get_lb with "Arch F3") as "%Ht3'".
+        iDestruct (dqst_archived_get_frag with "Arch") as "#F'".
+        iDestruct (dqst_frag_agree with "F3 F'") as "[_ %Hl3']".
+        rewrite Hl3'. destruct (mod_get_is_Some l' t1) as [v Hv]...
+        iApply (wp_load_offset with "Arr")... iIntros "!> Arr".
+      iDestruct ("Close" with "Arch Arr") as "Dqst".
       iDestruct (dqst_get_lb with "Dqst F'") as "%Lb'4".
-      iDestruct (dqst_frag_agree with "F3 F'") as "[_ %Hl3']".
-      rewrite Hl3'. destruct (mod_get_is_Some l' t1) as [v Hv]...
-        iDestruct (dqst_archived_get_array with "Arch") as "Parr".
-      iApply (wp_persistent_load_offset with "Parr")...
-      iIntros "!> _ !>". iSplitL "● Era Dqst C A T B".
+      iSplitL "● Era Dqst C A T B".
       { iExists _,_,l4. fr. }
-      wp_pures.
+      iModIntro. wp_pures.
 
       (* 5. CAS *)
       wp_bind (CmpXchg _ _ _)%E.
