@@ -230,8 +230,7 @@ Class dequeG Σ := DequeG {
     (* RA *)
     topbotG :> mono_natG Σ;
     topeltG :> mono_listG val Σ;
-    roomG :> mono_listG (gname * loc * nat) Σ;
-    museumG :> mono_listG (list val * nat * nat) Σ
+    roomG :> mono_listG (gname * loc * nat) Σ
   }.
 
 Definition dequeΣ : gFunctors :=
@@ -241,8 +240,7 @@ Definition dequeΣ : gFunctors :=
     (* RA *)
     mono_natΣ;
     mono_listΣ val;
-    mono_listΣ (gname * loc * nat);
-    mono_listΣ (list val * nat * nat)
+    mono_listΣ (gname * loc * nat)
   ].
 
 Global Instance subG_dequeΣ {Σ} : subG dequeΣ Σ → dequeG Σ.
@@ -251,16 +249,15 @@ Proof. solve_inG. Qed.
 Section dqst.
   Context `{!heapGS Σ, !dequeG Σ}.
   Notation iProp := (iProp Σ).
-  Definition dqst_gnames : Type := gname*gname*gname*gname.
+  Definition dqst_gnames : Type := gname*gname*gname.
 
   Definition top_bot_state (t b : nat) : nat :=
     2*t + (if bool_decide (t < b) then 1 else 0).
 
   Definition dqst_frag (γdqst : dqst_gnames) (era : nat)
   (arr : loc) (l : list val) (t b : nat) : iProp :=
-    let (γ'              , γmus) := γdqst in
-    let (γ''      , γroom) := γ' in
-    let (γtb, γelt) := γ'' in
+    let (γ'       , γroom) := γdqst in
+    let (γtb, γelt) := γ' in
     ∃ (γtbe : gname),
     ⌜1 ≤ t ≤ b ∧ b < t + length l ∧ length l ≠ 0⌝ ∗
     (* top-bot profile *)
@@ -280,9 +277,8 @@ Section dqst.
 
   Definition dqst_archived (γdqst : dqst_gnames) (era : nat)
   (arr : loc) (l : list val) (t b : nat) : iProp :=
-    let (γ'              , γmus) := γdqst in
-    let (γ''      , γroom) := γ' in
-    let (γtb, γelt) := γ'' in
+    let (γ'       , γroom) := γdqst in
+    let (γtb, γelt) := γ' in
     ∃ (γtbe : gname),
     ⌜1 ≤ t ≤ b ∧ b < t + length l ∧ length l ≠ 0⌝ ∗
     (* top-bot profile *)
@@ -302,9 +298,8 @@ Section dqst.
 
   Definition dqst_auth (γdqst : dqst_gnames) (era : nat)
   (arr : loc) (l : list val) (t b : nat) : iProp :=
-    let (γ'              , γmus) := γdqst in
-    let (γ''      , γroom) := γ' in
-    let (γtb, γelt) := γ'' in
+    let (γ'       , γroom) := γdqst in
+    let (γtb, γelt) := γ' in
     ∃ (γtbe : gname),
     ⌜1 ≤ t ≤ b ∧ b < t + length l ∧ length l ≠ 0⌝ ∗
     (* top-bot profile *)
@@ -330,7 +325,7 @@ Section dqst.
 
   (* Timeless & Persistent *)
   Ltac desγ H :=
-    destruct H as (((γtb, γelt), γroom), γmuseum).
+    destruct H as ((γtb, γelt), γroom).
 
   Global Instance dqst_frag_timeless γdqst era ca l t b :
     Timeless (dqst_frag γdqst era ca l t b).
@@ -363,10 +358,8 @@ Section dqst.
     iMod (mono_nat_own_alloc 2) as (γtbe) "[tbe _]".
     iMod (mono_list_own_alloc ([NONEV])) as (γelt) "[topelt _]".
     iMod (mono_list_own_alloc ([(γtbe, ca, length l)])) as (γroom) "[room _]".
-    iMod (mono_list_own_alloc ([] : list (list val * nat * nat))) as (γmus) "[museum _]".
-    iExists (γtb, γelt, γroom, γmus).
-    iModIntro. fr. fr.
-    iSplitL "topelt"; fr. fr.
+    iExists (γtb, γelt, γroom).
+    iModIntro. fr. fr. iSplitL "topelt"; fr. fr.
   Qed.
 
   Lemma dqst_frag_agree γdqst era ca1 l1 t1 b1 ca2 l2 t2 b2 :
