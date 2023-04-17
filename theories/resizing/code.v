@@ -1,8 +1,8 @@
 From iris.algebra Require Import list excl_auth mono_nat.
 From iris.bi Require Import derived_laws_later.
 From iris.bi.lib Require Import fractional.
-From iris.base_logic.lib Require Import invariants ghost_var mono_nat.
-From chase_lev Require Import mono_list atomic.
+From iris.base_logic.lib Require Import invariants ghost_var ghost_map.
+From chase_lev Require Import mono_list mono_nat atomic.
 From iris.heap_lang Require Import proofmode notation.
 From iris.prelude Require Import options.
 From chase_lev.resizing Require Import helpers spec.
@@ -226,21 +226,22 @@ Class dequeG Σ := DequeG {
     (* spec *)
     deque_tokG :> inG Σ (excl_authR $ listO valO);
     (* info: era, arrptr, arr, bot, popping *)
-    deque_infoG :> ghost_varG Σ (nat * loc * list val * nat * bool);
+    deque_infoG :> ghost_varG Σ (gname * loc * list val * nat * bool);
     (* RA *)
     topbotG :> mono_natG Σ;
     topeltG :> mono_listG val Σ;
-    roomG :> mono_listG (gname * loc * nat) Σ
+    (*roomG :> mono_listG (gname * loc * nat) Σ*)
+    roomG :> ghost_mapG Σ gname (loc * nat)
   }.
 
 Definition dequeΣ : gFunctors :=
   #[ (*invariant *)
     GFunctor (excl_authR $ listO valO);
-    ghost_varΣ (nat * loc * list val * nat * bool);
+    ghost_varΣ (gname * loc * list val * nat * bool);
     (* RA *)
     mono_natΣ;
     mono_listΣ val;
-    mono_listΣ (gname * loc * nat)
+    ghost_mapΣ gname (loc * nat)
   ].
 
 Global Instance subG_dequeΣ {Σ} : subG dequeΣ Σ → dequeG Σ.
@@ -254,15 +255,14 @@ Section dqst.
   Definition top_bot_state (t b : nat) : nat :=
     2*t + (if bool_decide (t < b) then 1 else 0).
 
-  Definition dqst_frag (γdqst : dqst_gnames) (era : nat)
+  Definition dqst_frag (γdqst : dqst_gnames) (γera : gname)
   (arr : loc) (l : list val) (t b : nat) : iProp :=
     let (γ'       , γroom) := γdqst in
     let (γtb, γelt) := γ' in
-    ∃ (γtbe : gname),
     ⌜1 ≤ t ≤ b ∧ b < t + length l ∧ length l ≠ 0⌝ ∗
     (* top-bot profile *)
     ( mono_nat_lb_own γtb (top_bot_state t b) ∗
-      mono_nat_lb_own γtbe (top_bot_state t b)
+      mono_nat_lb_own γera (top_bot_state t b)
     ) ∗
     (* top element preservation *)
     ( ∃ (elts : list val),
@@ -270,41 +270,21 @@ Section dqst.
       ⌜t = b ∨ mod_get l t = elts !! t⌝
     ) ∗
     (* museum of past gnames and circles *)
-    ( ∃ (room : list (gname * loc * nat)),
-      ⌜room !! era = Some (γtbe, arr, length l)⌝ ∗
-      mono_list_lb_own γroom room
-    ).
+    γera ↪[γroom]□ (arr, length l).
 
-  Definition dqst_archived (γdqst : dqst_gnames) (era : nat)
+  Definition dqst_archived (γdqst : dqst_gnames) (γera : gname)
+  (arr : loc) (l : list val) (t b : nat) : iProp :=
+    mono_nat_auth_own γera 1 (top_bot_state t b) ∗
+    dqst_frag γdqst γera arr l t b.
+
+  Definition dqst_auth (γdqst : dqst_gnames) (γera : gname)
   (arr : loc) (l : list val) (t b : nat) : iProp :=
     let (γ'       , γroom) := γdqst in
     let (γtb, γelt) := γ' in
-    ∃ (γtbe : gname),
-    ⌜1 ≤ t ≤ b ∧ b < t + length l ∧ length l ≠ 0⌝ ∗
-    (* top-bot profile *)
-    ( mono_nat_lb_own γtb (top_bot_state t b) ∗
-      mono_nat_auth_own γtbe 1 (top_bot_state t b)
-    ) ∗
-    (* top element preservation *)
-    ( ∃ (elts : list val),
-      mono_list_lb_own γelt elts ∗
-      ⌜t = b ∨ mod_get l t = elts !! t⌝
-    ) ∗
-    (* museum of past gnames and circles *)
-    ( ∃ (room : list (gname * loc * nat)),
-      ⌜room !! era = Some (γtbe, arr, length l)⌝ ∗
-      mono_list_lb_own γroom room
-    ).
-
-  Definition dqst_auth (γdqst : dqst_gnames) (era : nat)
-  (arr : loc) (l : list val) (t b : nat) : iProp :=
-    let (γ'       , γroom) := γdqst in
-    let (γtb, γelt) := γ' in
-    ∃ (γtbe : gname),
     ⌜1 ≤ t ≤ b ∧ b < t + length l ∧ length l ≠ 0⌝ ∗
     (* top-bot profile *)
     (mono_nat_auth_own γtb 1 (top_bot_state t b) ∗
-      mono_nat_auth_own γtbe 1 (top_bot_state t b)
+      mono_nat_auth_own γera 1 (top_bot_state t b)
     ) ∗
     (* top element preservation *)
     (∃ (elts : list val),
@@ -314,12 +294,13 @@ Section dqst.
         else (length elts = S t ∧ mod_get l t = elts !! t)⌝
     ) ∗
     (* museum of past gnames and circles *)
-    ( ∃ (proom : list (gname * loc * nat)),
-      ⌜length proom = era⌝ ∗
-      mono_list_auth_own γroom 1 (proom ++ [(γtbe, arr, length l)]) ∗
-      [∗ list] i ↦ gcl ∈ proom, ( ∃ l' t' b',
-        dqst_archived γdqst i (gcl.1.2) l' t' b' ∗
-        (gcl.1.2) ↦∗ l'
+    ( ∃ (proom : gmap gname (loc * nat)),
+      ⌜γera ∉ dom proom⌝ ∗
+      ghost_map_auth γroom 1 (<[γera := (arr, length l)]> proom) ∗
+      γera ↪[γroom]□ (arr, length l) ∗
+      [∗ map] γ' ↦ cn' ∈ proom, ( ∃ l' t' b',
+        dqst_archived γdqst γ' (cn'.1) l' t' b' ∗
+        cn'.1 ↦∗ l'
       )
     ).
 
@@ -350,16 +331,18 @@ Section dqst.
 
   Lemma dqst_auth_alloc ca l :
     length l ≠ 0 →
-    ⊢ |==> ∃ (γdqst : dqst_gnames),
-      dqst_auth γdqst 0 ca l 1 1.
+    ⊢ |==> ∃ (γdqst : dqst_gnames) (γ0 : gname),
+      dqst_auth γdqst γ0 ca l 1 1.
   Proof.
     intros Hl. unfold dqst_auth.
     iMod (mono_nat_own_alloc 2) as (γtb) "[tb _]".
-    iMod (mono_nat_own_alloc 2) as (γtbe) "[tbe _]".
+    iMod (mono_nat_own_alloc 2) as (γera) "[tbe _]".
     iMod (mono_list_own_alloc ([NONEV])) as (γelt) "[topelt _]".
-    iMod (mono_list_own_alloc ([(γtbe, ca, length l)])) as (γroom) "[room _]".
+    iMod (ghost_map_alloc ∅) as (γroom) "[room _]".
+    iMod (ghost_map_insert γera (ca, length l) with "[room]") as "[room ↪0]". 2: fr. 1: fr.
+    iMod (ghost_map_elem_persist with "↪0") as "↪0".
     iExists (γtb, γelt, γroom).
-    iModIntro. fr. fr. iSplitL "topelt"; fr. fr.
+    iModIntro. fr. fr. iSplitL "topelt"; fr.
   Qed.
 
   Lemma dqst_frag_agree γdqst era ca1 l1 t1 b1 ca2 l2 t2 b2 :
@@ -369,15 +352,10 @@ Section dqst.
   Proof.
     desγ γdqst.
     iIntros "F1 F2".
-      iDestruct "F1" as (γtbe1) "(%Hlt1 & tb1 & elt1 & muse1)".
-      iDestruct "muse1" as (room1) "[%Hroom1 Lb1]".
-      iDestruct "F2" as (γtbe2) "(%Hlt2 & tb2 & elt2 & muse2)".
-      iDestruct "muse2" as (room2) "[%Hroom2 Lb2]".
-    iDestruct (mono_list_lb_valid with "Lb1 Lb2") as "[%Pref|%Pref]".
-    - eapply prefix_lookup in Hroom1; eauto.
-      rewrite Hroom2 in Hroom1. by injection Hroom1.
-    - eapply prefix_lookup in Hroom2; eauto.
-      rewrite Hroom2 in Hroom1. by injection Hroom1.
+      iDestruct "F1" as "(%Hlt1 & tb1 & elt1 & muse1)".
+      iDestruct "F2" as "(%Hlt2 & tb2 & elt2 & muse2)".
+    iDestruct (ghost_map_elem_agree with "muse1 muse2") as "%Eqera".
+    injection Eqera; fr.
   Qed.
 
   Lemma dqst_get_frag γdqst era ca l t b :
@@ -386,16 +364,13 @@ Section dqst.
   Proof with extended_auto.
     desγ γdqst.
     iIntros "Auth".
-      iDestruct "Auth" as (γtbeO) "(%HltO & [tbO tbeO] & eltO & museO)".
+      iDestruct "Auth" as "(%HltO & [tbO tbeO] & eltO & museO)".
       iDestruct "eltO" as (elts) "[Elt %Heltslen]".
-      iDestruct "museO" as (room) "(%Hroomlen & Room & Archives)".
-    iDestruct (mono_nat_lb_own_get with "tbO") as "#lb".
-    iDestruct (mono_nat_lb_own_get with "tbeO") as "#lbe".
-    iDestruct (mono_list_lb_own_get with "Elt") as "#eltlb".
-    iDestruct (mono_list_lb_own_get with "Room") as "#rlb".
-    fr. fr.
-    - fr. case_bool_decide; [iLeft|iRight]... destruct Heltslen...
-    - fr. rewrite lookup_app_r... replace (era - length room) with 0...
+      iDestruct "museO" as (room) "(%Hroomlen & Room & era↪ & Archives)".
+    iDestruct (mono_nat_lb_own_get with "tbO") as "lb".
+    iDestruct (mono_nat_lb_own_get with "tbeO") as "lbe".
+    iDestruct (mono_list_lb_own_get with "Elt") as "eltlb".
+    fr. case_bool_decide; [iLeft|iRight]... destruct Heltslen...
   Qed.
 
   Lemma dqst_get_archived γdqst era1 ca1 l1 t1 b1
@@ -413,21 +388,16 @@ Section dqst.
   Proof with extended_auto.
     desγ γdqst.
     iIntros (Hneq) "Auth F".
-      iDestruct "Auth" as (γtbeO) "(%HltO & tbO & eltO & museO)".
-      iDestruct "museO" as (room) "(%Hroomlen & Room & Archives)".
-      iDestruct "F" as (γtbe) "(%Hlt & tb & elt & muse)".
-      iDestruct "muse" as (room') "[%Hroom'2 Lb']".
-    iDestruct (mono_list_auth_lb_valid with "Room Lb'") as "%Pref".
-      destruct Pref as [_ Pref].
-      eapply prefix_lookup in Hroom'2; eauto.
-    assert (era2 < era1) as Hera21.
-    { apply lookup_lt_Some in Hroom'2.
-      rewrite app_length Hroomlen in Hroom'2. simpl in Hroom'2... }
-    rewrite lookup_app_l in Hroom'2...
-    iDestruct (big_sepL_lookup_acc with "Archives") as "[Arch Close]"...
+      iDestruct "Auth" as "(%HltO & tbO & eltO & museO)".
+      iDestruct "museO" as (room) "(%Hroomlen & Room & era↪ & Archives)".
+      iDestruct "F" as "(%Hlt & tb & elt & muse)".
+    iDestruct (ghost_map_lookup with "Room muse") as "%Hera2".
+      assert (room !! era2 = Some (ca2, length l2)).
+      1: rewrite lookup_insert_ne in Hera2...
+    iDestruct (big_sepM_lookup_acc _ _ era2 with "Archives") as "[Arch Close]"...
       iDestruct "Arch" as (l' t' b') "[Arch2 arr]".
     iExists l'. fr. iIntros "Arch2 arr".
-    iSpecialize ("Close" with "[Arch2 arr]"). all: fr. fr.
+    iSpecialize ("Close" with "[Arch2 arr]"). all: fr.
   Qed.
 
   Lemma dqst_get_lb γdqst era1 ca1 l1 t1 b1
@@ -442,8 +412,8 @@ Section dqst.
   Proof with extended_auto.
     desγ γdqst.
     iIntros "Auth F".
-      iDestruct "Auth" as (γtbeO) "(%HltO & [tbO tbeO] & eltO & museO)".
-      iDestruct "F" as (γtbe) "(%Hlt & [tb tbe] & elt & muse)".
+      iDestruct "Auth" as "(%HltO & [tbO tbeO] & eltO & museO)".
+      iDestruct "F" as "(%Hlt & [tb tbe] & elt & muse)".
     iDestruct (mono_nat_lb_own_valid with "tbO tb") as "[_ %Htb]".
       apply top_bot_state_le in Htb as [Ht21 Htb21]. fr.
     iIntros ([H1 Ht1b2]). subst t2. assert (t1 < b1) as Htb1... fr.
@@ -460,12 +430,7 @@ Section dqst.
   Lemma dqst_archived_get_frag γdqst era ca l t b :
     dqst_archived γdqst era ca l t b -∗
     dqst_frag γdqst era ca l t b.
-  Proof.
-    desγ γdqst.
-    iIntros "Arc".
-      iDestruct "Arc" as (γtbeA) "(%Hlt & [tb tbe] & elt & muse)".
-    fr. fr. by iApply mono_nat_lb_own_get.
-  Qed.
+  Proof. desγ γdqst. by iIntros "[_ F]". Qed.
 
   Lemma dqst_archived_get_lb γdqst era ca l1 t1 b1 l2 t2 b2 :
     dqst_archived γdqst era ca l1 t1 b1 -∗
@@ -477,15 +442,10 @@ Section dqst.
   Proof with extended_auto.
     desγ γdqst.
     iIntros "Arc F".
-      iDestruct "Arc" as ( γtbeA) "(%Hlt1 & [tb1 tbe1] & elt1 & muse1)".
-      iDestruct "muse1" as (room1) "[%Hroom1 Lbroom1]".
-      iDestruct "F" as (γtbe) "(%Hlt2 & [tb2 tbe2] & elt2 & muse2)".
-      iDestruct "muse2" as (room2) "[%Hroom2 Lbroom2]".
-    iDestruct (mono_list_lb_lookup era with "Lbroom1 Lbroom2") as "%Hr12".
-      { apply lookup_lt_Some in Hroom1... }
-      { apply lookup_lt_Some in Hroom2... }
-      rewrite Hroom1 Hroom2 in Hr12. injection Hr12 as [= <-].
-    iDestruct (mono_nat_lb_own_valid with "tbe1 tbe2") as "[%Hq %Htb2]".
+      iDestruct "Arc" as "[tbe1 F1]".
+      iDestruct "F1" as "(%Hlt1 & [tb1 _] & elt1 & muse1)".
+      iDestruct "F" as "(%Hlt2 & [tb2 tbe2] & elt2 & muse2)".
+    iDestruct (mono_nat_lb_own_valid with "tbe1 tbe2") as "[_ %Htb2]".
     apply top_bot_state_le in Htb2 as [Hlt21 Htb2].
       fr. iIntros ([<- Hlt]). clear Hlt21.
       assert (t2 < b1) as Hlt21...
@@ -504,7 +464,7 @@ Section dqst.
   Proof.
     desγ γdqst.
     iIntros "Auth".
-      iDestruct "Auth" as (γtbeO) "(%HltO & tbO & eltO & museO)".
+      iDestruct "Auth" as "(%HltO & tbO & eltO & museO)".
       iDestruct "eltO" as (elts) "[Elts %Heltslen]".
     unfold dqst_auth. rewrite mod_set_length. fr.
     fr. case_bool_decide; auto. rewrite mod_set_get_ne; auto.
@@ -518,7 +478,7 @@ Section dqst.
   Proof with extended_auto.
     desγ γdqst.
     iIntros (Hlt) "Auth".
-      iDestruct "Auth" as (γtbeO) "(%HltO & [tbO tbeO] & eltO & museO)".
+      iDestruct "Auth" as "(%HltO & [tbO tbeO] & eltO & museO)".
       iDestruct "eltO" as (elts) "[Elts %Heltslen]".
     iMod (mono_nat_own_update (top_bot_state (S t) b)
       with "tbO") as "[tbO _]".
@@ -543,7 +503,7 @@ Section dqst.
   Proof with extended_auto.
     desγ γdqst.
     iIntros (Hlt) "Auth".
-      iDestruct "Auth" as (γtbeO) "(%HltO & [tbO tbeO] & eltO & museO)".
+      iDestruct "Auth" as "(%HltO & [tbO tbeO] & eltO & museO)".
       iDestruct "eltO" as (elts) "[Elts %Heltslen]".
     iMod (mono_nat_own_update (top_bot_state t (S b))
       with "tbO") as "[tbO _]".
@@ -568,7 +528,7 @@ Section dqst.
   Proof with extended_auto.
     desγ γdqst.
     iIntros (Hlt) "Auth".
-      iDestruct "Auth" as (γtbeO) "(%HltO & [tbO tbeO] & eltO & museO)".
+      iDestruct "Auth" as "(%HltO & [tbO tbeO] & eltO & museO)".
       iDestruct "eltO" as (elts) "[Elts %Heltslen]".
     replace (top_bot_state t b) with (top_bot_state t (b-1)).
       2: unfold top_bot_state; repeat case_bool_decide...
@@ -580,24 +540,28 @@ Section dqst.
     circ_slice l t b = circ_slice l' t b →
     ca ↦∗ l -∗
     dqst_auth γdqst era ca l t b ==∗
-    dqst_auth γdqst (S era) ca' l' t b.
+    ∃ (γera' : gname), dqst_auth γdqst γera' ca' l' t b.
   Proof with extended_auto.
     desγ γdqst.
     iIntros (Hlong Heqs) "Own Auth".
-      iDestruct "Auth" as (γtbeO) "(%HltO & [tbO tbeO] & eltO & museO)".
-      (*iDestruct "tbeO" as "[tbeO1 tbeO2]".*)
+      iDestruct "Auth" as "(%HltO & [tbO tbeO] & eltO & museO)".
       iDestruct "eltO" as (elts) "[Elts %Heltslen]".
-      iDestruct "museO" as (proom) "(%Hproomlen & Room & Archives)".
+      iDestruct "museO" as (proom) "(%Hproomlen & Room & era↪ & Archives)".
 
     (* archive *)
-    iDestruct (mono_nat_lb_own_get with "tbO") as "#tb".
+    iDestruct (mono_nat_lb_own_get with "tbO") as "#tbOlb".
+    iDestruct (mono_nat_lb_own_get with "tbeO") as "#tbeOlb".
     iDestruct (mono_list_lb_own_get with "Elts") as "#eltslb".
-    iDestruct (mono_list_lb_own_get with "Room") as "#roomlb".
 
     (* new era *)
-    iMod (mono_nat_own_alloc (top_bot_state t b)) as (γtbe') "[tbe' _]".
-    iMod (mono_list_auth_own_update_app [(γtbe', ca', length l')]
-      with "Room") as "[Room #rlb]".
+    iMod (mono_nat_own_alloc_strong
+      (λ γ, γ ∉ (dom (<[era:=(ca, length l)]> proom) ))
+      (top_bot_state t b)
+    ) as (γera') "[%Hγ' [tbe' _]]".
+      1: apply pred_infinite_gname_notin.
+    iMod (ghost_map_insert γera' (ca', length l') with "Room") as "[Room era'↪]".
+      1: apply not_elem_of_dom...
+      iMod (ghost_map_elem_persist with "era'↪") as "#era'↪".
 
     (* frame *)
     iModIntro. fr. fr.
@@ -611,28 +575,24 @@ Section dqst.
       rewrite Hy -Hget Hx...
     }
     fr. fr.
-    { rewrite app_length -Hproomlen. simpl... }
-    rewrite big_sepL_singleton. iExists l. fr. fr. fr. all: fr.
-    - case_bool_decide... iRight. destruct Heltslen...
-    - rewrite lookup_app_l...
-      2: rewrite app_length; simpl...
-      rewrite lookup_app_r...
-      replace (length proom + 0 - length proom) with 0...
-  Qed.
+    rewrite big_sepM_insert... 2: apply not_elem_of_dom...
+    fr. iExists l, t, b. fr. fr. fr.
+    case_bool_decide... iRight. destruct Heltslen...
+  Admitted.
 End dqst.
 
 Section proof.
   Context `{!heapGS Σ, !dequeG Σ, !circleG Σ} (N : namespace).
   Notation iProp := (iProp Σ).
 
-  Definition deque_inv (γq γera : gname) (γdqst : dqst_gnames)
+  Definition deque_inv (γq γsw : gname) (γdqst : dqst_gnames)
   (C top bot : loc) : iProp :=
-    ∃ (era : nat) (arr : loc) (l : list val) (t b : nat) (pop : bool),
+    ∃ (γera : gname) (arr : loc) (l : list val) (t b : nat) (pop : bool),
       ⌜1 ≤ t ≤ b ∧ b < t + length l ∧ length l ≠ 0⌝ ∗
       (* abstract *)
       own γq (●E (circ_slice l t b)) ∗
-      ghost_var γera (1/2) (era, arr, l, b, pop) ∗
-      dqst_auth γdqst era arr l t b ∗
+      ghost_var γsw (1/2) (γera, arr, l, b, pop) ∗
+      dqst_auth γdqst γera arr l t b ∗
       (* physical *)
       C ↦{#1/2} (#arr, #(length l)) ∗
       arr ↦∗{#1/2} l ∗
@@ -640,27 +600,27 @@ Section proof.
       bot ↦{#1/2} #(if pop then b-1 else b).
 
   Definition is_deque (γ : gname) (q : val) : iProp :=
-    ∃ (γq γera : gname) (γdqst : dqst_gnames) (C top bot : loc),
+    ∃ (γq γsw : gname) (γdqst : dqst_gnames) (C top bot : loc),
       ⌜q = (#C, #top, #bot)%V⌝ ∗
-      ⌜γ = encode (γq, γera, γdqst)⌝ ∗
-      inv N (deque_inv γq γera γdqst C top bot).
+      ⌜γ = encode (γq, γsw, γdqst)⌝ ∗
+      inv N (deque_inv γq γsw γdqst C top bot).
   Global Instance is_deque_persistent γ q :
     Persistent (is_deque γ q) := _.
 
   Definition deque_content (γ : gname) (frag : list val) : iProp :=
-    ∃ (γq γera : gname) (γdqst : dqst_gnames),
-      ⌜γ = encode (γq, γera, γdqst)⌝ ∗
+    ∃ (γq γsw : gname) (γdqst : dqst_gnames),
+      ⌜γ = encode (γq, γsw, γdqst)⌝ ∗
       own γq (◯E frag).
   Global Instance deque_content_timeless γ frag :
     Timeless (deque_content γ frag) := _.
 
   (* owner of the deque who can call push and pop *)
   Definition own_deque (γ : gname) (q : val) : iProp :=
-    ∃ (γq γera : gname) (γdqst : dqst_gnames) (era : nat)
+    ∃ (γq γsw γera : gname) (γdqst : dqst_gnames)
     (l : list val) (C arr top bot : loc) (b : nat),
-      ⌜γ = encode (γq, γera, γdqst)⌝ ∗
+      ⌜γ = encode (γq, γsw, γdqst)⌝ ∗
       ⌜q = (#C, #top, #bot)%V⌝ ∗
-      ghost_var γera (1/2) (era, arr, l, b, false) ∗
+      ghost_var γsw (1/2) (γera, arr, l, b, false) ∗
       C ↦{#1/2} (#arr, #(length l)) ∗
       arr ↦∗{#1/2} l ∗
       bot ↦{#1/2} #b.
@@ -669,8 +629,8 @@ Section proof.
     deque_content γ frag1 -∗ deque_content γ frag2 -∗ False.
   Proof.
     iIntros "C1 C2".
-      iDestruct "C1" as (γq γera γdqst) "[%Enc C1]".
-      iDestruct "C2" as (γq' γera' γdqst') "[%Enc' C2]".
+      iDestruct "C1" as (γq γsw γdqst) "[%Enc C1]".
+      iDestruct "C2" as (γq' γsw' γdqst') "[%Enc' C2]".
       encode_agree Enc.
     by iDestruct (own_valid_2 with "C1 C2") as %?%auth_frag_op_valid_1.
   Qed.
@@ -709,9 +669,9 @@ Section proof.
 
     (* make resources *)
     iMod (own_alloc (●E [] ⋅ ◯E [])) as (γq) "[γq● γq◯]". 1: apply excl_auth_valid.
-    iMod (ghost_var_alloc (0, arr, (replicate n #0), 1, false)) as (γera) "[Era1 Era2]".
-    iMod (dqst_auth_alloc arr (replicate n #0)) as (γdqst) "Auth"...
-    iMod (inv_alloc N _ (deque_inv γq γera γdqst C top bot)
+    iMod (dqst_auth_alloc arr (replicate n #0)) as (γdqst γera) "Auth"...
+    iMod (ghost_var_alloc (γera, arr, (replicate n #0), 1, false)) as (γsw) "[Era1 Era2]".
+    iMod (inv_alloc N _ (deque_inv γq γsw γdqst C top bot)
       with "[C↦1 t↦ b↦1 arr↦1 γq● Auth Era1]") as "Inv".
     { fr. fr. }
 
@@ -729,11 +689,11 @@ Section proof.
       RET #(), own_deque γ q >>>.
   Proof with extended_auto.
     iIntros "#Is Own" (Φ) "AU".
-      iDestruct "Own" as (γq γera γdqst) "Own".
-        iDestruct "Own" as (era l C arr top bot b) "Own".
+      iDestruct "Own" as (γq γsw γera) "Own".
+        iDestruct "Own" as (γdqst l C arr top bot b) "Own".
         iDestruct "Own" as "(%Enc & %Q & eraOwn & COwn & AOwn & bOwn)".
         subst q.
-      iDestruct "Is" as (γq' γera' γdqst') "Inv".
+      iDestruct "Is" as (γq' γsw' γdqst') "Inv".
         iDestruct "Inv" as (C' top' bot') "Inv".
         iDestruct "Inv" as "(%Q & %Enc' & Inv)".
         injection Q as [= <- <- <-]. encode_agree Enc.
@@ -742,7 +702,7 @@ Section proof.
 
     (* 1. load top *)
     wp_bind (! _)%E.
-      iInv "Inv" as (era1 arr1 l1 t1 b1 pop1) ">Invs".
+      iInv "Inv" as (γera1 arr1 l1 t1 b1 pop1) ">Invs".
         iDestruct "Invs" as "(%Htb1 & ● & Era & Dqst & C & A & T & B)".
       iDestruct (ghost_var_agree with "eraOwn Era") as "%Eq"; injection Eq as [= <- <- <- <- <-].
       iDestruct (dqst_get_frag with "Dqst") as "#F1".
@@ -755,10 +715,10 @@ Section proof.
     - (* 2. write to circle *)
       wp_load. wp_pures. rewrite rem_mod_eq...
       wp_bind (_ <- _)%E.
-        iInv "Inv" as (era2 arr2 l2 t2 b2 pop2) ">Invs".
+        iInv "Inv" as (γera2 arr2 l2 t2 b2 pop2) ">Invs".
           iDestruct "Invs" as "(%Htb2 & ● & Era & Dqst & C & A & T & B)".
         iDestruct (ghost_var_agree with "eraOwn Era") as "%Eq"; injection Eq as [= <- <- <- <- <-].
-        iMod (ghost_var_update_halves (era, arr, (mod_set l b v), b, false)
+        iMod (ghost_var_update_halves (γera, arr, (mod_set l b v), b, false)
           with "eraOwn Era") as "[eraOwn Era]".
         iDestruct (dqst_auth_write_bot v with "Dqst") as "Dqst".
         iCombine "AOwn A" as "A".
@@ -770,10 +730,10 @@ Section proof.
       wp_pures.
 
       (* 3. increment bot *)
-      iInv "Inv" as (era3 arr3 l3 t3 b3 pop3) ">Invs".
+      iInv "Inv" as (γera3 arr3 l3 t3 b3 pop3) ">Invs".
         iDestruct "Invs" as "(%Htb3 & ● & Era & Dqst & C & A & T & B)".
         iDestruct (ghost_var_agree with "eraOwn Era") as "%Eq"; injection Eq as [= <- <- <- <- <-].
-        iMod (ghost_var_update_halves (era, arr, (mod_set l b v), S b, false)
+        iMod (ghost_var_update_halves (γera, arr, (mod_set l b v), S b, false)
           with "eraOwn Era") as "[eraOwn Era]".
         iDestruct (dqst_get_lb with "Dqst F1") as "%Ht13".
           iMod (dqst_auth_push with "Dqst") as "Dqst". 1: rewrite mod_set_length...
@@ -781,22 +741,22 @@ Section proof.
           replace (Z.of_nat b + 1)%Z with (Z.of_nat (S b))...
         iDestruct "B" as "[bOwn B]".
       iMod "AU" as (l') "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq' γera' γbglob') "[%Enc' ◯]". encode_agree Enc.
+        iDestruct "Cont" as (γq' γsw' γbglob') "[%Enc' ◯]". encode_agree Enc.
         iDestruct (own_ea_agree with "● ◯") as "%Hl'".
         iMod (own_ea_update (l' ++ [v]) with "● ◯") as "[● ◯]".
         iMod ("Commit" with "[◯]") as "HΦ". 1: fr.
       iModIntro. iSplitL "● Era Dqst C A T B".
-      { iExists era, arr, (mod_set l b v), t3, (S b). fr.
+      { iExists γera, arr, (mod_set l b v), t3, (S b). fr.
         rewrite (circ_slice_extend_right _ _ _ v)... 2: rewrite mod_set_get...
         subst l'. fr. rewrite mod_set_length... }
       iApply "HΦ".
-        iExists γq, γera, γdqst.
-        iExists era, (mod_set l b v), C, arr, top, bot, (S b).
+        iExists γq, γsw, γera, γdqst.
+        iExists (mod_set l b v), C, arr, top, bot, (S b).
         fr. rewrite insert_length...
     - (* X. grow *)
       wp_bind (grow_circle _ _ _)%E.
       awp_apply (grow_circle_spec with "[eraOwn COwn AOwn bOwn AU]")...
-        iInv "Inv" as (eraX arrX lX tX bX popX) ">Invs".
+        iInv "Inv" as (γeraX arrX lX tX bX popX) ">Invs".
           iDestruct "Invs" as "(%HtbX & ● & Era & Dqst & C & A & T & B)".
         iDestruct (ghost_var_agree with "eraOwn Era") as "%Eq"; injection Eq as [= <- <- <- <- <-].
         iCombine "AOwn A" as "A".
@@ -810,31 +770,31 @@ Section proof.
 
       (* Y. replace array *)
       wp_bind (_ <- _)%E.
-        iInv "Inv" as (eraY caY lY tY bY popY) ">Invs".
+        iInv "Inv" as (γeraY caY lY tY bY popY) ">Invs".
           iDestruct "Invs" as "(%HtbY & ● & Era & Dqst & C & A & T & B)".
         iDestruct (ghost_var_agree with "eraOwn Era") as "%Eq"; injection Eq as [= <- <- <- <- <-].
-        iMod (ghost_var_update_halves (S era, arrX, lX, b, false)
-          with "eraOwn Era") as "[eraOwn Era]".
-          iDestruct (dqst_get_lb with "Dqst F1") as "%Ht1Y".
-          apply (circ_slice_split_eq tY) in Heqs as Heqsd... destruct Heqsd as [_ HeqsR]...
+        apply (circ_slice_split_eq tY) in Heqs as Heqsd...
+          destruct Heqsd as [_ HeqsR]...
         iCombine "AOwn A" as "A".
-          iMod (dqst_auth_archive arrX lX with "[A] [Dqst]") as "Dqst".
+          iMod (dqst_auth_archive arrX lX with "[A] [Dqst]") as (γera') "Dqst".
           2: apply HeqsR. all: eauto. 1: fr.
           iDestruct "AX" as "[AOwn A]".
+        iMod (ghost_var_update_halves (γera', arrX, lX, b, false)
+          with "eraOwn Era") as "[eraOwn Era]".
+          iDestruct (dqst_get_lb with "Dqst F1") as "%Ht1Y".
         iCombine "COwn C" as "C". wp_store.
         iDestruct "C" as "[COwn C]".
       iSplitL "● Era Dqst C A T B".
-      { iModIntro; iNext. iExists _,_,lX.
-        fr. fr. rewrite -HeqsR... }
+      { iModIntro; iNext. iExists _,_,lX. fr. fr. rewrite -HeqsR... }
       iModIntro. wp_pures. wp_load. wp_pures.
 
       (* 2. write to circle *)
       rewrite rem_mod_eq...
       wp_bind (_ <- _)%E.
-        iInv "Inv" as (era2 arr2 l2 t2 b2 pop2) ">Invs".
+        iInv "Inv" as (γera2 arr2 l2 t2 b2 pop2) ">Invs".
           iDestruct "Invs" as "(%Htb2 & ● & Era & Dqst & C & A & T & B)".
         iDestruct (ghost_var_agree with "eraOwn Era") as "%Eq"; injection Eq as [= <- <- <- <- <-].
-        iMod (ghost_var_update_halves (S era, arrX, (mod_set lX b v), b, false)
+        iMod (ghost_var_update_halves (γera', arrX, (mod_set lX b v), b, false)
           with "eraOwn Era") as "[eraOwn Era]".
         iDestruct (dqst_auth_write_bot v with "Dqst") as "Dqst".
         iCombine "AOwn A" as "A".
@@ -846,10 +806,10 @@ Section proof.
       wp_pures.
 
       (* 3. increment bot *)
-      iInv "Inv" as (era3 arr3 l3 t3 b3 pop3) ">Invs".
+      iInv "Inv" as (γera3 arr3 l3 t3 b3 pop3) ">Invs".
         iDestruct "Invs" as "(%Htb3 & ● & Era & Dqst & C & A & T & B)".
         iDestruct (ghost_var_agree with "eraOwn Era") as "%Eq"; injection Eq as [= <- <- <- <- <-].
-        iMod (ghost_var_update_halves (S era, arrX, (mod_set lX b v), S b, false)
+        iMod (ghost_var_update_halves (γera', arrX, (mod_set lX b v), S b, false)
           with "eraOwn Era") as "[eraOwn Era]".
         iDestruct (dqst_get_lb with "Dqst F1") as "%Ht13".
           iMod (dqst_auth_push with "Dqst") as "Dqst". 1: rewrite mod_set_length...
@@ -857,17 +817,17 @@ Section proof.
           replace (Z.of_nat b + 1)%Z with (Z.of_nat (S b))...
         iDestruct "B" as "[bOwn B]".
       iMod "AU" as (l') "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq' γera' γbglob') "[%Enc' ◯]". encode_agree Enc.
+        iDestruct "Cont" as (γq' γsw' γbglob') "[%Enc' ◯]". encode_agree Enc.
         iDestruct (own_ea_agree with "● ◯") as "%Hl'".
         iMod (own_ea_update (l' ++ [v]) with "● ◯") as "[● ◯]".
         iMod ("Commit" with "[◯]") as "HΦ". 1: fr.
       iModIntro. iSplitL "● Era Dqst C A T B".
-      { iExists (S era), arrX, (mod_set lX b v), t3, (S b), false. fr.
+      { iExists γera', arrX, (mod_set lX b v), t3, (S b), false. fr.
         1: rewrite mod_set_length... subst l'.
         rewrite (circ_slice_extend_right _ _ _ v)... rewrite mod_set_get... }
       iApply "HΦ".
-        iExists γq, γera, γdqst.
-        iExists (S era), (mod_set lX b v). fr. fr. rewrite insert_length...
+        iExists γq, γsw, γera', γdqst.
+        iExists (mod_set lX b v). fr. fr. rewrite insert_length...
     Unshelve. done.
   Qed.
 
@@ -886,11 +846,11 @@ Section proof.
       RET ov, own_deque γ q >>>.
   Proof with extended_auto.
     iIntros "#Is Own" (Φ) "AU".
-      iDestruct "Own" as (γq γera γdqst) "Own".
-        iDestruct "Own" as (era l C arr top bot b) "Own".
+      iDestruct "Own" as (γq γsw γera) "Own".
+        iDestruct "Own" as (γdqst l C arr top bot b) "Own".
         iDestruct "Own" as "(%Enc & %Q & eraOwn & COwn & AOwn & bOwn)".
         subst q.
-      iDestruct "Is" as (γq' γera' γdqst') "Inv".
+      iDestruct "Is" as (γq' γsw' γdqst') "Inv".
         iDestruct "Inv" as (C' top' bot') "Inv".
         iDestruct "Inv" as "(%Q & %Enc' & Inv)".
         injection Q as [= <- <- <-]. encode_agree Enc.
@@ -899,10 +859,10 @@ Section proof.
 
     (* 1. decrement bot *)
     wp_bind (_ <- _)%E.
-      iInv "Inv" as (era1 ca1 l1 t1 b1 pop1) ">Invs".
+      iInv "Inv" as (γera1 ca1 l1 t1 b1 pop1) ">Invs".
         iDestruct "Invs" as "(%Htb1 & ● & Era & Dqst & C & A & T & B)".
       iDestruct (ghost_var_agree with "eraOwn Era") as "%Eq"; injection Eq as [= <- <- <- <- <-].
-      iMod (ghost_var_update_halves (era, arr, l, b, true)
+      iMod (ghost_var_update_halves (γera, arr, l, b, true)
         with "eraOwn Era") as "[eraOwn Era]".
       iCombine "bOwn B" as "B". wp_store.
       iDestruct "B" as "[bOwn B]".
@@ -912,7 +872,7 @@ Section proof.
 
     (* 2. load top *)
     wp_bind (! _)%E.
-      iInv "Inv" as (era2 ca2 l2 t2 b2 pop2) ">Invs".
+      iInv "Inv" as (γera2 ca2 l2 t2 b2 pop2) ">Invs".
         iDestruct "Invs" as "(%Htb2 & ● & Era & Dqst & C & A & T & B)".
       iDestruct (ghost_var_agree with "eraOwn Era") as "%Eq"; injection Eq as [= <- <- <- <- <-].
       wp_load.
@@ -920,11 +880,11 @@ Section proof.
     destruct (decide (t2 < b-1)).
     { (* normal case, this point is the commit point *)
       iMod "AU" as (l') "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq' γera' γdqst') "[%Enc' ◯]". encode_agree Enc.
+        iDestruct "Cont" as (γq' γsw' γdqst') "[%Enc' ◯]". encode_agree Enc.
         destruct (mod_get_is_Some l (b-1)) as [x Hx]...
         iDestruct (own_ea_agree with "● ◯") as "%Eq". subst l'.
         iMod (own_ea_update (circ_slice l t2 (b-1)) with "● ◯") as "[● ◯]".
-        iMod (ghost_var_update_halves (era, arr, l, b-1, false)
+        iMod (ghost_var_update_halves (γera, arr, l, b-1, false)
           with "eraOwn Era") as "[eraOwn Era]".
         iMod (dqst_auth_pop with "Dqst") as "Dqst"...
       iMod ("Commit" $! (circ_slice l t2 (b-1)) (SOMEV x) with "[◯]") as "HΦ".
@@ -950,10 +910,10 @@ Section proof.
       assert (t2 = b)... subst t2.
       (* 3. roll back bot *)
       wp_bind (_ <- _)%E.
-        iInv "Inv" as (era3 ca3 l3 t3 b3 pop3) ">Invs".
+        iInv "Inv" as (γera3 ca3 l3 t3 b3 pop3) ">Invs".
           iDestruct "Invs" as "(%Htb3 & ● & Era & Dqst & C & A & T & B)".
         iDestruct (ghost_var_agree with "eraOwn Era") as "%Eq"; injection Eq as [= <- <- <- <- <-].
-        iMod (ghost_var_update_halves (era, arr, l, b, false)
+        iMod (ghost_var_update_halves (γera, arr, l, b, false)
           with "eraOwn Era") as "[eraOwn Era]".
         iCombine "bOwn B" as "B". wp_store.
         iDestruct "B" as "[bOwn B]".
@@ -977,7 +937,7 @@ Section proof.
     (* 3. CAS for one-element case *)
     assert (b = S t2)... subst b.
     wp_bind (CmpXchg _ _ _)%E.
-      iInv "Inv" as (era3 ca3 l3 t3 b3 pop3) ">Invs".
+      iInv "Inv" as (γera3 ca3 l3 t3 b3 pop3) ">Invs".
         iDestruct "Invs" as "(%Htb3 & ● & Era & Dqst & C & A & T & B)".
       iDestruct (ghost_var_agree with "eraOwn Era") as "%Eq"; injection Eq as [= <- <- <- <- <-].
     destruct (decide (t2 = t3)).
@@ -985,7 +945,7 @@ Section proof.
       subst t3. wp_cmpxchg_suc.
         replace (Z.of_nat t2 + 1)%Z with (Z.of_nat (S t2))...
       iMod "AU" as (l') "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq' γera' γdqst') "[%Enc' ◯]". encode_agree Enc.
+        iDestruct "Cont" as (γq' γsw' γdqst') "[%Enc' ◯]". encode_agree Enc.
         destruct (mod_get_is_Some l (S t2 - 1)) as [x Hx]...
           rewrite Hv in Hx. injection Hx as [= <-].
         iMod (dqst_auth_update with "Dqst") as "Dqst"...
@@ -995,18 +955,18 @@ Section proof.
       { fr. rewrite (circ_slice_extend_right _ _ _ v)...
         1: rewrite circ_slice_nil... replace t2 with (S t2 - 1)... }
       iModIntro. iSplitL "● Era Dqst C A T B".
-      { iExists era, arr, l, (S t2), (S t2).
+      { iExists γera, arr, l, (S t2), (S t2).
         rewrite circ_slice_nil... fr. fr. }
       wp_pures.
 
       (* 4. roll back bot *)
       wp_bind (_ <- _)%E.
-        iInv "Inv" as (era4 ca4 l4 t4 b4 pop4) ">Invs".
+        iInv "Inv" as (γera4 ca4 l4 t4 b4 pop4) ">Invs".
           iDestruct "Invs" as "(%Htb4 & ● & Era & Dqst & C & A & T & B)".
         iDestruct (ghost_var_agree with "eraOwn Era") as "%Eq"; injection Eq as [= <- <- <- <- <-].
         replace (Z.of_nat (S t2 - 1))%Z with (Z.of_nat t2)%Z...
         replace (Z.of_nat (S t2) - 1)%Z with (Z.of_nat t2)%Z...
-        iMod (ghost_var_update_halves (era, arr, l, S t2, false)
+        iMod (ghost_var_update_halves (γera, arr, l, S t2, false)
           with "eraOwn Era") as "[eraOwn Era]".
         iCombine "bOwn B" as "B". wp_store.
           replace (Z.of_nat t2 + 1)%Z with (Z.of_nat (S t2))%Z...
@@ -1024,12 +984,12 @@ Section proof.
 
       (* 4. roll back bot *)
       wp_bind (_ <- _)%E.
-        iInv "Inv" as (era4 ca4 l4 t4 b4 pop4) ">Invs".
+        iInv "Inv" as (γera4 ca4 l4 t4 b4 pop4) ">Invs".
           iDestruct "Invs" as "(%Htb4 & ● & Era & Dqst & C & A & T & B)".
         iDestruct (ghost_var_agree with "eraOwn Era") as "%Eq"; injection Eq as [= <- <- <- <- <-].
         replace (Z.of_nat (S t2 - 1))%Z with (Z.of_nat t2)%Z...
         replace (Z.of_nat (S t2) - 1)%Z with (Z.of_nat t2)%Z...
-        iMod (ghost_var_update_halves (era, arr, l, S t2, false)
+        iMod (ghost_var_update_halves (γera, arr, l, S t2, false)
           with "eraOwn Era") as "[eraOwn Era]".
         iCombine "bOwn B" as "B". wp_store.
           replace (Z.of_nat t2 + 1)%Z with (Z.of_nat (S t2))%Z...
@@ -1053,7 +1013,7 @@ Section proof.
       RET ov >>>.
   Proof with extended_auto.
     iIntros "#Is" (Φ) "AU".
-    iDestruct "Is" as (γq γera γdqst) "Inv".
+    iDestruct "Is" as (γq γsw γdqst) "Inv".
       iDestruct "Inv" as (C top bot) "Inv".
       iDestruct "Inv" as "(%Q & %Enc & Inv)".
       subst q.
@@ -1061,7 +1021,7 @@ Section proof.
 
     (* 1. load top *)
     wp_bind (! _)%E.
-      iInv "Inv" as (era1 ca1 l1 t1 b1 pop1) ">Invs".
+      iInv "Inv" as (γera1 ca1 l1 t1 b1 pop1) ">Invs".
         iDestruct "Invs" as "(%Htb1 & ● & Era & Dqst & C & A & T & B)".
       iDestruct (dqst_get_frag with "Dqst") as "#F1".
       wp_load.
@@ -1071,7 +1031,7 @@ Section proof.
 
     (* 2. load bot *)
     wp_bind (! _)%E.
-      iInv "Inv" as (era2 ca2 l2 t2 b2 pop2) ">Invs".
+      iInv "Inv" as (γera2 ca2 l2 t2 b2 pop2) ">Invs".
         iDestruct "Invs" as "(%Htb2 & ● & Era & Dqst & C & A & T & B)".
       iDestruct (dqst_get_frag with "Dqst") as "#F2".
       iDestruct (dqst_get_lb with "Dqst F1") as "%Lb12".
@@ -1082,7 +1042,7 @@ Section proof.
 
     (* 3. load array *)
     wp_bind (! _)%E.
-      iInv "Inv" as (era3 ca3 l3 t3 b3 pop3) ">Invs".
+      iInv "Inv" as (γera3 ca3 l3 t3 b3 pop3) ">Invs".
         iDestruct "Invs" as "(%Htb3 & ● & Era & Dqst & C & A & T & B)".
       iDestruct (dqst_get_frag with "Dqst") as "#F3".
       iDestruct (dqst_get_lb with "Dqst F2") as "%Lb23".
@@ -1105,13 +1065,13 @@ Section proof.
     (* 4. get_circle *)
     rewrite rem_mod_eq...
     wp_bind (! _)%E.
-      iInv "Inv" as (era4 ca4 l4 t4 b4 pop4) ">Invs".
+      iInv "Inv" as (γera4 ca4 l4 t4 b4 pop4) ">Invs".
         iDestruct "Invs" as "(%Htb4 & ● & Era & Dqst & C & A & T & B)".
       iDestruct (dqst_get_frag with "Dqst") as "#F4".
       iDestruct (dqst_get_lb with "Dqst F3") as "%Lb34".
-    destruct (decide (era3 = era4)) as [eqγ|neqγ].
+    destruct (decide (γera3 = γera4)) as [eqγ|neqγ].
     - (* array was not archived *)
-      subst era4.
+      subst γera4.
         iDestruct (dqst_frag_agree with "F3 F4") as "[%H34 %Hlen]".
           subst ca4. rewrite Hlen. clear Hlen.
         destruct (mod_get_is_Some l4 t1) as [v Hv]...
@@ -1123,7 +1083,7 @@ Section proof.
       
       (* 5. CAS *)
       wp_bind (CmpXchg _ _ _)%E.
-      iInv "Inv" as (era5 ca5 l5 t5 b5 pop5) ">Invs".
+      iInv "Inv" as (γera5 ca5 l5 t5 b5 pop5) ">Invs".
         iDestruct "Invs" as "(%Htb5 & ● & Era & Dqst & C & A & T & B)".
         iDestruct (dqst_get_frag with "Dqst") as "#F5".
         iDestruct (dqst_get_lb with "Dqst F4") as "%Lb45".
@@ -1147,7 +1107,7 @@ Section proof.
         { replace (mod_get l5 t1) with (mod_get l4 t1)...
           apply Lb45... }
       iMod "AU" as (lau) "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq' γera' γdqst') "[%Enc' ◯]". encode_agree Enc'.
+        iDestruct "Cont" as (γq' γsw' γdqst') "[%Enc' ◯]". encode_agree Enc'.
         iDestruct (own_ea_agree with "● ◯") as "%Hlau". subst lau.
         rewrite (circ_slice_shrink_left _ _ _ v)...
         iMod (own_ea_update (circ_slice l5 (S t1) b5)
@@ -1173,7 +1133,7 @@ Section proof.
 
       (* 5. CAS *)
       wp_bind (CmpXchg _ _ _)%E.
-      iInv "Inv" as (era5 ca5 l5 t5 b5 pop5) ">Invs".
+      iInv "Inv" as (γera5 ca5 l5 t5 b5 pop5) ">Invs".
         iDestruct "Invs" as "(%Htb5 & ● & Era & Dqst & C & A & T & B)".
         iDestruct (dqst_get_frag with "Dqst") as "#F5".
         iDestruct (dqst_get_lb with "Dqst F4") as "%Lb45".
@@ -1199,7 +1159,7 @@ Section proof.
           - rewrite -Hv. symmetry. apply Lb'4...
           - apply Lb45... }
       iMod "AU" as (lau) "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq' γera' γdqst') "[%Enc' ◯]". encode_agree Enc'.
+        iDestruct "Cont" as (γq' γsw' γdqst') "[%Enc' ◯]". encode_agree Enc'.
         iDestruct (own_ea_agree with "● ◯") as "%Hlau". subst lau.
         rewrite (circ_slice_shrink_left _ _ _ v)...
         iMod (own_ea_update (circ_slice l5 (S t1) b5)

@@ -20,61 +20,14 @@ Ltac encode_agree Hγ :=
       end
   end.
 
-Section array.
-  Context `{!heapGS Σ}.
-
-  Global Instance array_persistent p l :
-    Persistent (p ↦∗□ l).
-  Proof. apply big_sepL_persistent, _. Qed.
-
-  Lemma array_agree x l1 l2 dq1 dq2 :
-    length l1 = length l2 →
-    x ↦∗{dq1} l1 -∗ x ↦∗{dq2} l2 -∗ ⌜l1 = l2⌝.
+Section pred_infinite.
+  Lemma pred_infinite_gname_notin (X : gset gname) :
+    pred_infinite (λ x: gname, x ∉ X).
   Proof.
-    revert l2.
-    iInduction l1 as [|v l1] "HInd" using rev_ind;
-      iIntros (l2 HL) "x1 x2". { destruct l2; auto. }
-    destruct l2 using rev_ind.
-      { rewrite app_length in HL. simpl in HL. lia. }
-
-    do 2 rewrite array_app.
-    assert (length l1 = length l2) as Hlen.
-      { do 2 rewrite app_length in HL. simpl in HL. lia. }
-    iDestruct "x1" as "[x1 xl1]". iDestruct "x2" as "[x2 xl2]".
-    do 2 rewrite array_singleton. rewrite Hlen.
-    iDestruct (mapsto_agree with "xl1 xl2") as "<-".
-    by iDestruct ("HInd" $! l2 with "[] [x1] [x2]") as "<-".
+    eapply (pred_infinite_set (C:=gset gname)). intros X0.
+    exists (fresh (X ∪ X0)). apply not_elem_of_union, is_fresh.
   Qed.
-
-  Lemma array_persist x dq l :
-    x ↦∗{dq} l ==∗ x ↦∗□ l.
-  Proof.
-    iInduction l as [|v l] "HInd" using rev_ind; auto.
-    rewrite array_app array_singleton.
-    iIntros "[x1 x2]".
-    iMod ("HInd" with "x1") as "x1".
-    iMod (mapsto_persist with "x2") as "x2".
-    rewrite /array big_sepL_snoc. by iFrame.
-  Qed.
-
-  Lemma twp_persistent_load_offset s E l (off : nat) vs v :
-    vs !! off = Some v →
-    [[{ l ↦∗□ vs }]] ! #(l +ₗ off) @ s; E [[{ RET v; True }]].
-  Proof.
-    iIntros (Hlookup Φ) "#Hl HΦ".
-    iDestruct (update_array l _ _ _ _ Hlookup with "Hl") as "[Hl1 Hl2]".
-    iApply (twp_load with "Hl1"). iIntros "_". by iApply "HΦ".
-  Qed.
-
-  Lemma wp_persistent_load_offset s E l (off : nat) vs v :
-    vs !! off = Some v →
-    {{{ l ↦∗□ vs }}} ! #(l +ₗ off) @ s; E {{{ RET v; True }}}.
-  Proof.
-    iIntros (? Φ) "#H HΦ". iApply (twp_wp_step with "HΦ").
-    iApply (twp_persistent_load_offset with "H"); [by eauto..|].
-    iIntros "_ HΦ". by iApply "HΦ".
-  Qed.
-End array.
+End pred_infinite.
 
 Section neq.
   Lemma neq_symm (n m : nat) : n ≠ m ↔ m ≠ n.
