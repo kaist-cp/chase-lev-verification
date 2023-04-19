@@ -467,13 +467,15 @@ Section dqst.
     iMod (mono_nat_own_update (top_bot_state (S t) b) with "tbeO") as "[tbeO _]".
     { unfold top_bot_state. do 2 case_bool_decide... }
 
-    destruct (decide (S t = b)).
-    { iModIntro. fr. fr. case_bool_decide; fr. iPureIntro. intros n Hn. apply Heltslen... }
-    iMod (ghost_map_insert (S t) (mod_get l (S t)) with "[Elts]") as "[Elts topS↪]"...
+    destruct (decide (S t = b)) as [Htb|Htb].
+    { iModIntro. fr. fr. case_bool_decide... fr.
+      iPureIntro. intros. apply Heltslen... }
+    destruct (mod_get_is_Some l (S t)) as [v Hv]...
+    iMod (ghost_map_insert (S t) (mod_get l (S t)) with "Elts") as "[Elts topS↪]".
       1: apply Heltslen...
-      iMod (ghost_map_elem_persist with "topS↪") as "#topS↪".
+      iMod (ghost_map_elem_persist with "topS↪") as "topS↪".
     iModIntro. fr. fr. case_bool_decide... fr.
-    iPureIntro. intros m Hm. apply lookup_insert_None. split... apply Heltslen...
+    iPureIntro. intros. rewrite lookup_insert_ne... apply Heltslen...
   Qed.
 
   Lemma dqst_auth_push γdqst era ca l t b :
@@ -578,8 +580,8 @@ Section proof.
       ⌜q = (#C, #top, #bot)%V⌝ ∗
       ⌜γ = encode (γq, γsw, γdqst)⌝ ∗
       inv N (deque_inv γq γsw γdqst C top bot).
-  Global Instance is_deque_persistent γ q :
-    Persistent (is_deque γ q) := _.
+  Global Instance is_deque_persistent γ p :
+    Persistent (is_deque γ p) := _.
 
   Definition deque_content (γ : gname) (frag : list val) : iProp :=
     ∃ (γq γsw : gname) (γdqst : dqst_gnames),
@@ -630,8 +632,8 @@ Section proof.
     0 < n →
     {{{ True }}}
       new_deque #n
-    {{{ γ q, RET q;
-      is_deque γ q ∗ deque_content γ [] ∗ own_deque γ q
+    {{{ γ p, RET p;
+      is_deque γ p ∗ deque_content γ [] ∗ own_deque γ p
     }}}.
   Proof with extended_auto.
     iIntros (Hsz Φ) "_ HΦ". wp_lam.
@@ -654,19 +656,19 @@ Section proof.
     iSplitL "γq◯"; fr. fr.
   Qed.
 
-  Lemma push_spec γ q (v : val) :
-    is_deque γ q -∗
-    own_deque γ q -∗
+  Lemma push_spec γ p (v : val) :
+    is_deque γ p -∗
+    own_deque γ p -∗
     <<< ∀∀ l : list val, deque_content γ l >>>
-      push q v @ ↑N
+      push p v @ ↑N
     <<< deque_content γ (l ++ [v]),
-      RET #(), own_deque γ q >>>.
+      RET #(), own_deque γ p >>>.
   Proof with extended_auto.
     iIntros "#Is Own" (Φ) "AU".
       iDestruct "Own" as (γq γsw γera) "Own".
         iDestruct "Own" as (γdqst l C arr top bot b) "Own".
         iDestruct "Own" as "(%Enc & %Q & eraOwn & COwn & AOwn & bOwn)".
-        subst q.
+        subst p.
       iDestruct "Is" as (γq' γsw' γdqst') "Inv".
         iDestruct "Inv" as (C' top' bot') "Inv".
         iDestruct "Inv" as "(%Q & %Enc' & Inv)".
@@ -805,25 +807,22 @@ Section proof.
     Unshelve. done.
   Qed.
 
-  Lemma pop_spec γ q :
-    is_deque γ q -∗
-    own_deque γ q -∗
+  Lemma pop_spec γ p :
+    is_deque γ p -∗
+    own_deque γ p -∗
     <<< ∀∀ l : list val, deque_content γ l >>>
-      pop q @ ↑N
+      pop p @ ↑N
     <<< ∃∃ (l' : list val) (ov : val),
-        deque_content γ l' ∗
-        match ov with
-        | NONEV => ⌜l = l'⌝
-        | SOMEV v => ⌜l = l' ++ [v]⌝
-        | _ => False
-        end,
-      RET ov, own_deque γ q >>>.
+      deque_content γ l' ∗
+      ( ⌜ov = NONEV ∧ l = l'⌝ ∨
+        ∃ v, ⌜ov = SOMEV v ∧ l = l' ++ [v]⌝),
+      RET ov, own_deque γ p >>>.
   Proof with extended_auto.
     iIntros "#Is Own" (Φ) "AU".
       iDestruct "Own" as (γq γsw γera) "Own".
         iDestruct "Own" as (γdqst l C arr top bot b) "Own".
         iDestruct "Own" as "(%Enc & %Q & eraOwn & COwn & AOwn & bOwn)".
-        subst q.
+        subst p.
       iDestruct "Is" as (γq' γsw' γdqst') "Inv".
         iDestruct "Inv" as (C' top' bot') "Inv".
         iDestruct "Inv" as "(%Q & %Enc' & Inv)".
@@ -851,7 +850,7 @@ Section proof.
       iDestruct (ghost_var_agree with "eraOwn Era") as "%Eq"; injection Eq as [= <- <- <- <- <-].
       wp_load.
 
-    destruct (decide (t2 < b-1)).
+    destruct (decide (t2 < b-1)) as [Htb|Htb].
     { (* normal case, this point is the commit point *)
       iMod "AU" as (l') "[Cont [_ Commit]]".
         iDestruct "Cont" as (γq' γsw' γdqst') "[%Enc' ◯]". encode_agree Enc.
@@ -862,7 +861,8 @@ Section proof.
           with "eraOwn Era") as "[eraOwn Era]".
         iMod (dqst_auth_pop with "Dqst") as "Dqst"...
       iMod ("Commit" $! (circ_slice l t2 (b-1)) (SOMEV x) with "[◯]") as "HΦ".
-      { fr. rewrite -circ_slice_extend_right... replace (S (b-1)) with b... }
+      { fr. iRight. fr.
+        rewrite -circ_slice_extend_right... replace (S (b-1)) with b... }
       iModIntro. iSplitL "● Era Dqst C A T B".
       { iExists _,_,l,t2. fr. fr. replace (Z.of_nat b - 1)%Z with (Z.of_nat (b - 1))%Z... }
       wp_pures.
@@ -914,7 +914,7 @@ Section proof.
       iInv "Inv" as (γera3 ca3 l3 t3 b3 pop3) ">Invs".
         iDestruct "Invs" as "(%Htb3 & ● & Era & Dqst & C & A & T & B)".
       iDestruct (ghost_var_agree with "eraOwn Era") as "%Eq"; injection Eq as [= <- <- <- <- <-].
-    destruct (decide (t2 = t3)).
+    destruct (decide (t2 = t3)) as [Ht23|Ht23].
     + (* success *)
       subst t3. wp_cmpxchg_suc.
         replace (Z.of_nat t2 + 1)%Z with (Z.of_nat (S t2))...
@@ -973,24 +973,21 @@ Section proof.
       wp_pures. iApply "HΦ". iExists _,_,_, _,l. fr.
   Qed.
 
-  Lemma steal_spec γ q :
-    is_deque γ q -∗
+  Lemma steal_spec γ p :
+    is_deque γ p -∗
     <<< ∀∀ l : list val, deque_content γ l >>>
-      steal q @ ↑N
+      steal p @ ↑N
     <<< ∃∃ (l' : list val) (ov : val),
-        deque_content γ l' ∗
-        match ov with
-        | NONEV => ⌜l = l'⌝
-        | SOMEV v => ⌜l = [v] ++ l'⌝
-        | _ => False
-        end,
-      RET ov >>>.
+      deque_content γ l' ∗
+      (⌜ov = NONEV ∧ l = l'⌝ ∨
+        ∃ v, ⌜ov = SOMEV v ∧ l = [v] ++ l'⌝),
+    RET ov >>>.
   Proof with extended_auto.
     iIntros "#Is" (Φ) "AU".
     iDestruct "Is" as (γq γsw γdqst) "Inv".
       iDestruct "Inv" as (C top bot) "Inv".
       iDestruct "Inv" as "(%Q & %Enc & Inv)".
-      subst q.
+      subst p.
     wp_lam. unfold code.arr, code.top, code.bot, circ_access. wp_pures.
 
     (* 1. load top *)

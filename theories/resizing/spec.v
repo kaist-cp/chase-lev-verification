@@ -18,7 +18,7 @@ Record atomic_deque {Σ} `{!heapGS Σ} := AtomicDEQUE {
   own_deque (N : namespace) (γ : name) (q : val) : iProp Σ;
   deque_content (γ : name) (ls : list val) : iProp Σ;
   (* -- predicate properties -- *)
-  is_deque_persistent N γ q : Persistent (is_deque N γ q);
+  is_deque_persistent N γ p : Persistent (is_deque N γ p);
   deque_content_timeless γ ls : Timeless (deque_content γ ls);
   deque_content_exclusive γ ls1 ls2 :
     deque_content γ ls1 -∗ deque_content γ ls2 -∗ False;
@@ -27,39 +27,33 @@ Record atomic_deque {Σ} `{!heapGS Σ} := AtomicDEQUE {
     0 < n →
     {{{ True }}}
       new_deque #n
-    {{{ γ q, RET q;
-      is_deque N γ q ∗ deque_content γ [] ∗ own_deque N γ q
+    {{{ γ p, RET p;
+      is_deque N γ p ∗ deque_content γ [] ∗ own_deque N γ p
     }}};
-  push_spec N γ q (v : val) :
-    is_deque N γ q -∗ own_deque N γ q -∗
+  push_spec N γ p (v : val) :
+    is_deque N γ p -∗ own_deque N γ p -∗
     <<< ∀∀ l : list val, deque_content γ l >>>
-      push q v @ ↑N
+      push p v @ ↑N
     <<< deque_content γ (l ++ [v]),
-      RET #(), own_deque N γ q >>>;
-  pop_spec N γ q :
-    is_deque N γ q -∗ own_deque N γ q -∗
+      RET #(), own_deque N γ p >>>;
+  pop_spec N γ p :
+    is_deque N γ p -∗ own_deque N γ p -∗
     <<< ∀∀ l : list val, deque_content γ l >>>
-      pop q @ ↑N
+      pop p @ ↑N
     <<< ∃∃ (l' : list val) (ov : val),
-        deque_content γ l' ∗
-        match ov with
-        | NONEV => ⌜l = l'⌝
-        | SOMEV v => ⌜l = l' ++ [v]⌝
-        | _ => False
-        end,
-      RET ov, own_deque N γ q >>>;
-  steal_spec N γ q :
-    is_deque N γ q -∗
+      deque_content γ l' ∗
+      (⌜ov = NONEV ∧ l = l'⌝ ∨
+        ∃ v, ⌜ov = SOMEV v ∧ l = l' ++ [v]⌝),
+      RET ov, own_deque N γ p >>>;
+  steal_spec N γ p :
+    is_deque N γ p -∗
     <<< ∀∀ l : list val, deque_content γ l >>>
-      steal q @ ↑N
+      steal p @ ↑N
     <<< ∃∃ (l' : list val) (ov : val),
-        deque_content γ l' ∗
-        match ov with
-        | NONEV => ⌜l = l'⌝
-        | SOMEV v => ⌜l = [v] ++ l'⌝
-        | _ => False
-        end,
-      RET ov >>>;
+      deque_content γ l' ∗
+      (⌜ov = NONEV ∧ l = l'⌝ ∨
+        ∃ v, ⌜ov = SOMEV v ∧ l = [v] ++ l'⌝),
+    RET ov >>>;
 }.
 Global Arguments atomic_deque _ {_}.
 

@@ -128,7 +128,7 @@ Section list.
     length (circ_slice l i j) = j - i.
   Proof.
     unfold circ_slice. intros Hlen.
-    remember (j-i) as ji eqn:Hji. revert ji i j Hji.
+    remember (j-i) as ji eqn:Hji. revert i j Hji.
     induction ji as [|len IHji]; intros i j Hji; auto. simpl.
     destruct (mod_get_is_Some l i) as [x Hx]; auto. rewrite Hx.
     simpl. rewrite (IHji (S i) j); lia.
@@ -139,12 +139,12 @@ Section list.
     circ_slice l i j = circ_slice l i m ++ circ_slice l m j.
   Proof.
     unfold circ_slice. intros Hlen Hm.
-    remember (m-i) as dif eqn:Hdif. revert dif i m j Hm Hdif.
+    remember (m-i) as dif eqn:Hdif. revert i m j Hm Hdif.
     induction dif as [|dif IHdif]; intros i m j Hm Hdif; simpl.
     { replace m with i; by try lia. }
-    destruct (j-i) eqn:Eji; try lia. simpl.
+    destruct (j-i) as [|ji] eqn:Eji; try lia. simpl.
     destruct (mod_get_is_Some l i) as [x Hx]; auto. rewrite Hx.
-    assert (j - S i = n) as Eji' by lia.
+    assert (j - S i = ji) as Eji' by lia.
     specialize (IHdif (S i) m j). rewrite Eji' in IHdif.
     rewrite IHdif; auto. all: lia.
   Qed.
@@ -170,8 +170,8 @@ Section list.
   Proof.
     unfold circ_slice. intros Hlen Hij Hj.
     replace (S j - i) with (S (j - i)) by lia.
-    remember (j - i) as d. revert i Hij Heqd.
-    induction d; intros.
+    remember (j - i) as d eqn:Heqd. revert i Hij Heqd.
+    induction d as [|d IHd]; intros i Hij Heqd.
     - simpl. replace i with j by lia. by rewrite Hj.
     - assert (is_Some (mod_get l i)) as [vi Vi] by by apply mod_get_is_Some.
       simpl. rewrite Vi; simpl.
@@ -184,8 +184,8 @@ Section list.
     circ_slice (mod_set l j v) i j = circ_slice l i j.
   Proof.
     unfold circ_slice. intros Hlen Hij.
-    remember (j - i) as d. revert i Hij Heqd.
-    induction d; intros; auto.
+    remember (j - i) as d eqn:Heqd. revert i Hij Heqd.
+    induction d as [|d IHd]; intros i Hij Heqd; auto.
     assert (i < j) by lia.
     assert (is_Some (mod_get l i)) as [vi Vi] by by apply mod_get_is_Some.
     assert (mod_get (mod_set l j v) i = Some vi) as Vi'.
