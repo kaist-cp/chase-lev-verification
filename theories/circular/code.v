@@ -3,7 +3,7 @@ From iris.bi Require Import derived_laws_later.
 From iris.bi.lib Require Import fractional.
 From iris.base_logic.lib Require Import invariants ghost_var ghost_map.
 From chase_lev Require Import mono_nat atomic.
-From iris.heap_lang Require Import proofmode notation.
+From iris.heap_lang Require Import proofmode notation diverge.
 From iris.prelude Require Import options.
 From chase_lev.circular Require Import helpers spec.
 
@@ -80,7 +80,7 @@ Section code.
       let: "array" := arr "deque" in
       let: "b" := !(bot "deque") in
       if: !(top "deque") + "sz" ≤ "b" + #1
-        then "push" "deque" "v"
+        then diverge #()
       else
       "array" +ₗ ("b" `rem` "sz") <- "v" ;;
       bot "deque" <- "b" + #1.
@@ -200,127 +200,7 @@ Section dqst.
     iMod (ghost_map_alloc (∅ : gmap nat (option val))) as (γelt) "[topelt _]".
     iExists (γtb, γelt). iModIntro. fr.
   Qed.
-(*
-  Lemma dqst_frag_agree γdqst l1 t1 b1 l2 t2 b2 :
-    dqst_frag γdqst l1 t1 b1 -∗
-    dqst_frag γdqst l2 t2 b2 -∗
-    ⌜length l1 = length l2⌝.
-  Proof.
-    desγ γdqst.
-    iIntros "F1 F2".
-      iDestruct "F1" as "(%Hlt1 & tb1 & elt1)".
-      iDestruct "F2" as "(%Hlt2 & tb2 & elt2)".
-    iDestruct (ghost_map_elem_agree with "muse1 muse2") as "%Eqera".
-    injection Eqera; fr.
-  Qed.
 
-  Lemma dqst_lb_lookup γm i l1 t1 b1 l2 t2 b2 :
-    i < length l1 → i < length l2 →
-    dqst_frag γm l1 t1 b1 -∗ dqst_frag γm l2 t2 b2 -∗
-    ⌜l1 !! i = l2 !! i⌝.
-  Proof.
-    iIntros (Hi Hv).
-    iIntros "(%γl & %γt & %ENC1 & %BOUND1 & L1 & N1)".
-    iIntros "(%γl' & %γt' & %ENC2 & %BOUND2 & L2 & N2)".
-      encode_agree ENC1.
-    assert (is_Some (l1 !! i)) as [v1 Hv1] by (rewrite lookup_lt_is_Some; auto).
-    assert (is_Some (l2 !! i)) as [v2 Hv2] by (rewrite lookup_lt_is_Some; auto).
-    iDestruct (mono_list_lb_valid with "L1 L2") as "%Pref".
-    destruct Pref.
-    - rewrite Hv1. erewrite prefix_lookup; eauto.
-    - rewrite Hv2. erewrite prefix_lookup; eauto.
-  Qed.
-
-  Lemma dqst_get_lb γm l t b :
-    dqst_auth γm l t b -∗
-    dqst_frag γm l t b.
-  Proof.
-    iIntros "(%γl & %γt & %ENC & %BOUND & L & N)".
-    iDestruct (mono_list_lb_own_get with "L") as "#Llb".
-    iDestruct (mono_nat_lb_own_get with "N") as "#Nlb".
-    iExists _,_. repeat iSplit; auto.
-  Qed.
-
-  Lemma dqst_auth_lb_length γm l1 t1 b1 l2 t2 b2 :
-    dqst_auth γm l1 t1 b1 -∗ dqst_frag γm l2 t2 b2 -∗
-    ⌜length l2 ≤ length l1⌝.
-  Proof.
-    iIntros "(%γl & %γt & %ENC1 & %BOUND1 & L1 & N1)".
-    iIntros "(%γl' & %γt' & %ENC2 & %BOUND2 & L2 & N2)".
-      encode_agree ENC1.
-    iDestruct (mono_list_auth_lb_valid with "L1 L2") as "[_ %Pref]".
-    by apply prefix_length in Pref.
-  Qed.
-
-  Lemma dqst_auth_lb_top γm l1 t1 b1 l2 t2 b2 :
-    dqst_auth γm l1 t1 b1 -∗ dqst_frag γm l2 t2 b2 -∗
-    ⌜t2 ≤ t1 ∧ (t1 = t2 → t2 < b2 → t1 < b1)⌝.
-  Proof.
-    iIntros "D1 D2".
-    iDestruct (dqst_auth_lb_length with "D1 D2") as "%D".
-    iDestruct "D1" as "(%γl & %γt & %ENC1 & %BOUND1 & L1 & N1)".
-    iDestruct "D2" as "(%γl' & %γt' & %ENC2 & %BOUND2 & L2 & N2)".
-      encode_agree ENC1.
-    iDestruct (mono_nat_lb_own_valid with "N1 N2") as "[_ %Le]".
-    iPureIntro. lia.
-  Qed.
-
-  Lemma dqst_steal γm v l t b :
-    t < b →
-    dqst_auth γm l t b ==∗
-    dqst_auth γm
-      (if decide (S t = b) then l else l ++ [v])
-      (S t) b.
-  Proof.
-    iIntros (H) "(%γl & %γt & %ENC & %BOUND & L & N)".
-    destruct BOUND; try lia.
-    iMod (mono_nat_own_update (S t) with "N") as "[N _]". 1: lia.
-    case_decide.
-    - iModIntro. iExists _,_. repeat iSplit; auto; iFrame.
-      iPureIntro. lia.
-    - iMod (mono_list_auth_own_update (l ++ [v]) with "L") as "[L _]".
-      1: by apply prefix_app_r.
-      iModIntro. iExists _,_. repeat iSplit; auto; iFrame.
-      iPureIntro. right. split; try lia.
-      rewrite app_length; simpl. lia.
-  Qed.
-
-  Lemma dqst_pop_singleton γm l t :
-    dqst_auth γm l t (S t) ==∗
-    dqst_auth γm l (S t) (S t).
-  Proof.
-    iIntros "D".
-    iMod (dqst_steal _ #() with "D"). 1: lia.
-    case_decide; auto. by destruct H.
-  Qed.
-
-  Lemma dqst_push γm l2 b2 l1 t b1 :
-    b1 < b2 →
-    ((t = b1 ∧ ∃ v, l2 = l1 ++ [v]) ∨
-      (t < b1 ∧ l1 = l2)
-    ) →
-    dqst_auth γm l1 t b1 ==∗ dqst_auth γm l2 t b2.
-  Proof.
-    iIntros (H HU) "(%γl & %γt & %ENC & %BOUND & L & N)".
-    destruct HU as [[Ht [v Hl]]|[Ht Hl]];
-    destruct BOUND as [[Hl1 Hb]|[Hl1 Hb]]; try lia; subst.
-    - iMod (mono_list_auth_own_update (l1 ++ [v]) with "L") as "[L _]".
-      { by apply prefix_app_r. }
-      iModIntro. iExists _,_. repeat iSplit; auto; iFrame.
-      iPureIntro. right; split; auto. rewrite app_length; simpl. lia.
-    - iModIntro. iExists _,_. repeat iSplit; auto; iFrame.
-      iPureIntro. right; split; auto. lia.
-  Qed.
-
-  Lemma dqst_pop γm b2 l t b1 :
-    t < b1 → t < b2 →
-    dqst_auth γm l t b1 -∗ dqst_auth γm l t b2.
-  Proof.
-    iIntros (H1 H2) "(%γl & %γt & %ENC & %BOUND & L & N)".
-    destruct BOUND as [[Hl1 Hb]|[Hl1 Hb]]; try lia.
-    iExists _,_. repeat iSplit; auto; iFrame.
-  Qed.
-*)
   Lemma dqst_get_frag γdqst l t b :
     dqst_auth γdqst l t b -∗ dqst_frag γdqst l t b.
   Proof with extended_auto.
@@ -359,8 +239,8 @@ Section dqst.
     iIntros "Auth".
       iDestruct "Auth" as "(%HltO & tbO & eltO)".
     unfold dqst_auth. rewrite mod_set_length. case_bool_decide; fr.
-    rewrite mod_set_get_ne. 1: fr. (*apply neq_symm, close_mod_neq; lia.*)
-  Admitted.
+    rewrite mod_set_get_ne. 1: fr. apply neq_symm, close_mod_neq; lia.
+  Qed.
 
   Lemma dqst_auth_push γdqst l t b :
     S b < t + length l →
@@ -396,6 +276,28 @@ Section dqst.
       2: unfold top_bot_state; repeat case_bool_decide...
     iModIntro. fr. fr. case_bool_decide... fr.
   Qed.
+
+  Lemma dqst_auth_update γdqst l t b :
+    t < b →
+    dqst_auth γdqst l t b ==∗
+    dqst_auth γdqst l (S t) b.
+  Proof with extended_auto.
+    desγ γdqst.
+    iIntros (Hlt) "Auth".
+      iDestruct "Auth" as "(%HltO & tbO & eltO)".
+      iDestruct "eltO" as (elts) "(Elts & top↪ & %Heltslen)".
+      case_bool_decide...
+    iMod (mono_nat_own_update (top_bot_state (S t) b) with "tbO") as "[tbO _]".
+    { unfold top_bot_state. do 2 case_bool_decide... }
+
+    destruct (decide (S t = b)).
+    { iModIntro. fr. fr. case_bool_decide; fr. iPureIntro. intros n Hn. apply Heltslen... }
+    iMod (ghost_map_insert (S t) (mod_get l (S t)) with "[Elts]") as "[Elts topS↪]"...
+      1: apply Heltslen...
+      iMod (ghost_map_elem_persist with "topS↪") as "#topS↪".
+    iModIntro. fr. fr. case_bool_decide... fr.
+    iPureIntro. intros m Hm. apply lookup_insert_None. split... apply Heltslen...
+  Qed.
 End dqst.
 
 Section proof.
@@ -403,9 +305,9 @@ Section proof.
   Notation iProp := (iProp Σ).
 
   Definition deque_inv (γq γsw : gname) (γdqst : dqst_gnames)
-  (arr top bot : loc) : iProp :=
+  (n : nat) (arr top bot : loc) : iProp :=
     ∃ (l : list val) (t b : nat) (pop : bool),
-      ⌜1 ≤ t ≤ b ∧ b < t + length l ∧ length l ≠ 0⌝ ∗
+      ⌜1 ≤ t ≤ b ∧ b < t + length l ∧ length l = n⌝ ∗
       (* abstract *)
       own γq (●E (circ_slice l t b)) ∗
       ghost_var γsw (1/2) (l, b, pop) ∗
@@ -419,7 +321,8 @@ Section proof.
     ∃ (γq γsw : gname) (γdqst : dqst_gnames) (n : nat) (arr top bot : loc),
       ⌜q = (#n, #arr, #top, #bot)%V⌝ ∗
       ⌜γ = encode (γq, γsw, γdqst)⌝ ∗
-      inv N (deque_inv γq γsw γdqst arr top bot).
+      ⌜0 < n⌝ ∗
+      inv N (deque_inv γq γsw γdqst n arr top bot).
   Global Instance is_deque_persistent γ q :
     Persistent (is_deque γ q) := _.
 
@@ -485,7 +388,7 @@ Section proof.
     iMod (own_alloc (●E [] ⋅ ◯E [])) as (γq) "[γq● γq◯]". 1: apply excl_auth_valid.
     iMod (dqst_auth_alloc (replicate n #0)) as (γdqst) "Auth"...
     iMod (ghost_var_alloc ((replicate n #0), 1, false)) as (γsw) "[Era1 Era2]".
-    iMod (inv_alloc N _ (deque_inv γq γsw γdqst arr top bot)
+    iMod (inv_alloc N _ (deque_inv γq γsw γdqst n arr top bot)
       with "[t↦ b↦1 arr↦1 γq● Auth Era1]") as "Inv"; fr...
 
     (* apply Φ *)
@@ -508,8 +411,8 @@ Section proof.
         subst q.
       iDestruct "Is" as (γq' γsw' γdqst') "Inv".
         iDestruct "Inv" as (n' arr' top' bot') "Inv".
-        iDestruct "Inv" as "(%Q & %Enc' & Inv)".
-        injection Q as [= Hn <- <- <-]. encode_agree Enc.
+        iDestruct "Inv" as "(%Q & %Enc' & %Hn & Inv)".
+        injection Q as [= Heqn <- <- <-]. encode_agree Enc.
     wp_lam. unfold sz, code.arr, code.top, code.bot. wp_pures.
     wp_load. wp_pures.
 
@@ -524,7 +427,7 @@ Section proof.
     { iExists l. fr. }
     wp_pures.
 
-    case_bool_decide; wp_pures. { admit. }
+    case_bool_decide; wp_pures. 1: iApply wp_diverge.
     
     (* 2. write to circle *)
     rewrite rem_mod_eq...
@@ -564,7 +467,7 @@ Section proof.
     iApply "HΦ".
       iExists γq, γsw, γdqst.
       iExists (mod_set l b v), arr, top, bot, (S b). fr.
-  Admitted.
+  Qed.
 
   Lemma pop_spec γ q :
     is_deque γ q -∗
@@ -587,8 +490,8 @@ Section proof.
         subst q.
       iDestruct "Is" as (γq' γsw' γdqst') "Inv".
         iDestruct "Inv" as (n' arr' top' bot') "Inv".
-        iDestruct "Inv" as "(%Q & %Enc' & Inv)".
-        injection Q as [= Hn <- <- <-]. encode_agree Enc.
+        iDestruct "Inv" as "(%Q & %Enc' & %Hn & Inv)".
+        injection Q as [= Heqn <- <- <-]. encode_agree Enc.
     wp_lam. unfold sz, code.arr, code.top, code.bot. wp_pures.
     wp_load. wp_pures.
 
@@ -673,56 +576,6 @@ Section proof.
         iDestruct "Invs" as "(%Htb3 & ● & Sw & Dqst & A & T & B)".
       iDestruct (ghost_var_agree with "swOwn Sw") as "%Eq"; injection Eq as [= <- <- <-].
     destruct (decide (t2 = t3)).
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     + (* success *)
       subst t3. wp_cmpxchg_suc.
         replace (Z.of_nat t2 + 1)%Z with (Z.of_nat (S t2))...
@@ -737,48 +590,46 @@ Section proof.
       { fr. rewrite (circ_slice_extend_right _ _ _ v)...
         1: rewrite circ_slice_nil... replace t2 with (S t2 - 1)... }
       iModIntro. iSplitL "● Sw Dqst A T B".
-      { iExists γera, arr, l, (S t2), (S t2).
+      { iExists l, (S t2), (S t2).
         rewrite circ_slice_nil... fr. fr. }
       wp_pures.
 
       (* 4. roll back bot *)
       wp_bind (_ <- _)%E.
-        iInv "Inv" as (γera4 ca4 l4 t4 b4 pop4) ">Invs".
+        iInv "Inv" as (l4 t4 b4 pop4) ">Invs".
           iDestruct "Invs" as "(%Htb4 & ● & Sw & Dqst & A & T & B)".
         iDestruct (ghost_var_agree with "swOwn Sw") as "%Eq"; injection Eq as [= <- <- <-].
         replace (Z.of_nat (S t2 - 1))%Z with (Z.of_nat t2)%Z...
         replace (Z.of_nat (S t2) - 1)%Z with (Z.of_nat t2)%Z...
-        iMod (ghost_var_update_halves (γera, arr, l, S t2, false)
-          with "swOwn Sw") as "[swOwn Sw]".
+        iMod (ghost_var_update_halves (l, S t2, false) with "swOwn Sw") as "[swOwn Sw]".
         iCombine "bOwn B" as "B". wp_store.
           replace (Z.of_nat t2 + 1)%Z with (Z.of_nat (S t2))%Z...
         iDestruct "B" as "[bOwn B]".
       iModIntro. iSplitL "● Sw Dqst A T B".
-      { iExists _,_,l. fr. }
-      wp_pures. iApply "HΦ". iExists _,_,_, _,l. fr.
+      { iExists l. fr. }
+      wp_pures. iApply "HΦ". iExists _,_,_, l. fr.
     + (* fail *)
       wp_cmpxchg_fail. { intro NO. injection NO... }
       iMod "AU" as (l') "[Cont [_ Commit]]".
       iMod ("Commit" $! l' NONEV with "[Cont]") as "HΦ"...
       iModIntro. iSplitL "● Sw Dqst A T B".
-      { iExists _,_,l. fr. }
+      { iExists l. fr. }
       wp_pures.
 
       (* 4. roll back bot *)
       wp_bind (_ <- _)%E.
-        iInv "Inv" as (γera4 ca4 l4 t4 b4 pop4) ">Invs".
+        iInv "Inv" as (l4 t4 b4 pop4) ">Invs".
           iDestruct "Invs" as "(%Htb4 & ● & Sw & Dqst & A & T & B)".
         iDestruct (ghost_var_agree with "swOwn Sw") as "%Eq"; injection Eq as [= <- <- <-].
         replace (Z.of_nat (S t2 - 1))%Z with (Z.of_nat t2)%Z...
         replace (Z.of_nat (S t2) - 1)%Z with (Z.of_nat t2)%Z...
-        iMod (ghost_var_update_halves (γera, arr, l, S t2, false)
-          with "swOwn Sw") as "[swOwn Sw]".
+        iMod (ghost_var_update_halves (l, S t2, false) with "swOwn Sw") as "[swOwn Sw]".
         iCombine "bOwn B" as "B". wp_store.
           replace (Z.of_nat t2 + 1)%Z with (Z.of_nat (S t2))%Z...
         iDestruct "B" as "[bOwn B]".
       iModIntro. iSplitL "● Sw Dqst A T B".
-      { iExists _,_,l. fr. }
-      wp_pures. iApply "HΦ". iExists _,_,_, _,l. fr.
+      { iExists l. fr. }
+      wp_pures. iApply "HΦ". iExists _,_,_, l. fr.
   Qed.
 
   Lemma steal_spec γ q :
@@ -796,41 +647,30 @@ Section proof.
   Proof with extended_auto.
     iIntros "#Is" (Φ) "AU".
     iDestruct "Is" as (γq γsw γdqst) "Inv".
-      iDestruct "Inv" as (arr top bot) "Inv".
-      iDestruct "Inv" as "(%Q & %Enc & Inv)".
+      iDestruct "Inv" as (n arr top bot) "Inv".
+      iDestruct "Inv" as "(%Q & %Enc & %Hn & Inv)".
       subst q.
-    wp_lam. unfold code.arr, code.top, code.bot, circ_access. wp_pures.
+    wp_lam. unfold sz, code.arr, code.top, code.bot. wp_pures.
 
     (* 1. load top *)
     wp_bind (! _)%E.
-      iInv "Inv" as (γera1 ca1 l1 t1 b1 pop1) ">Invs".
+      iInv "Inv" as (l1 t1 b1 pop1) ">Invs".
         iDestruct "Invs" as "(%Htb1 & ● & Sw & Dqst & A & T & B)".
       iDestruct (dqst_get_frag with "Dqst") as "#F1".
       wp_load.
     iModIntro. iSplitL "● Sw Dqst A T B".
-    { iExists _,_,l1. fr. }
+    { iExists l1. fr. }
     wp_pures.
 
     (* 2. load bot *)
     wp_bind (! _)%E.
-      iInv "Inv" as (γera2 ca2 l2 t2 b2 pop2) ">Invs".
+      iInv "Inv" as (l2 t2 b2 pop2) ">Invs".
         iDestruct "Invs" as "(%Htb2 & ● & Sw & Dqst & A & T & B)".
       iDestruct (dqst_get_frag with "Dqst") as "#F2".
       iDestruct (dqst_get_lb with "Dqst F1") as "%Lb12".
       wp_load.
     iModIntro. iSplitL "● Sw Dqst A T B".
-    { iExists _,_,l2. fr. }
-    wp_pures.
-
-    (* 3. load array *)
-    wp_bind (! _)%E.
-      iInv "Inv" as (γera3 ca3 l3 t3 b3 pop3) ">Invs".
-        iDestruct "Invs" as "(%Htb3 & ● & Sw & Dqst & A & T & B)".
-      iDestruct (dqst_get_frag with "Dqst") as "#F3".
-      iDestruct (dqst_get_lb with "Dqst F2") as "%Lb23".
-      wp_load.
-    iModIntro. iSplitL "● Sw Dqst A T B".
-    { iExists _,_,l3. fr. }
+    { iExists l2. fr. }
     wp_pures.
 
     (* no chance to steal *)
@@ -844,114 +684,53 @@ Section proof.
       iApply "Φ"... }
     assert (t1 < b2) as Htb12. 1: destruct pop2...
 
-    (* 4. get_circle *)
+    (* 3. load array *)
     rewrite rem_mod_eq...
     wp_bind (! _)%E.
-      iInv "Inv" as (γera4 ca4 l4 t4 b4 pop4) ">Invs".
-        iDestruct "Invs" as "(%Htb4 & ● & Sw & Dqst & A & T & B)".
-      iDestruct (dqst_get_frag with "Dqst") as "#F4".
-      iDestruct (dqst_get_lb with "Dqst F3") as "%Lb34".
-    destruct (decide (γera3 = γera4)) as [eqγ|neqγ].
-    - (* array was not archived *)
-      subst γera4.
-        iDestruct (dqst_frag_agree with "F3 F4") as "[%H34 %Hlen]".
-          subst ca4. rewrite Hlen. clear Hlen.
-        destruct (mod_get_is_Some l4 t1) as [v Hv]...
-        iApply (wp_load_offset with "A")...
-        iIntros "!> A".
-      iModIntro. iSplitL "● Sw Dqst A T B".
-      { iExists _,_,l4. fr. }
-      wp_pures.
-      
-      (* 5. CAS *)
-      wp_bind (CmpXchg _ _ _)%E.
-      iInv "Inv" as (γera5 ca5 l5 t5 b5 pop5) ">Invs".
-        iDestruct "Invs" as "(%Htb5 & ● & Sw & Dqst & A & T & B)".
-        iDestruct (dqst_get_frag with "Dqst") as "#F5".
-        iDestruct (dqst_get_lb with "Dqst F4") as "%Lb45".
-      destruct (decide (t1 = t5)); last first.
-      { (* fail *)
-        wp_cmpxchg_fail. { intro NO. inversion NO... }
-        iMod "AU" as (lau) "[Cont [_ Commit]]".
-        iMod ("Commit" $! lau NONEV with "[Cont]") as "HΦ"...
-        iModIntro. iSplitL "● Sw Dqst A T B".
-        { iExists _,_,l5. fr. }
-        wp_pures. iApply "HΦ"...
-      }
-      (* success *)
-      subst t5. wp_cmpxchg_suc.
-        replace (Z.of_nat t1 + 1)%Z with (Z.of_nat (S t1))...
-        assert (t1 = t2)... subst t2.
-        assert (t1 = t3)... subst t3. assert (t1 < b3) as Htb13...
-        assert (t1 = t4)... subst t4. assert (t1 < b4) as Htb14...
-        assert (t1 < b5) as Htb15...
-        assert (mod_get l5 t1 = Some v) as Hv5.
-        { replace (mod_get l5 t1) with (mod_get l4 t1)...
-          apply Lb45... }
-      iMod "AU" as (lau) "[Cont [_ Commit]]".
-        iDestruct "Cont" as (γq' γsw' γdqst') "[%Enc' ◯]". encode_agree Enc'.
-        iDestruct (own_ea_agree with "● ◯") as "%Hlau". subst lau.
-        rewrite (circ_slice_shrink_left _ _ _ v)...
-        iMod (own_ea_update (circ_slice l5 (S t1) b5)
-          with "● ◯") as "[● ◯]".
-        iMod (dqst_auth_update with "Dqst") as "Dqst"...
-      iMod ("Commit" $! (circ_slice l5 (S t1) b5) (SOMEV v)
-        with "[◯]") as "HΦ"; fr.
-      iModIntro. iSplitL "● Sw Dqst A T B".
-      { iExists _,_,l5. fr. fr. }
-      wp_pures. iApply "HΦ"...
-    - (* array was archived *)
-      iDestruct (dqst_get_archived with "Dqst F3") as (l' t' b') "[Arch [Arr Close]]"...
-        iDestruct (dqst_archived_get_lb with "Arch F3") as "%Ht3'".
-        iDestruct (dqst_archived_get_frag with "Arch") as "#F'".
-        iDestruct (dqst_frag_agree with "F3 F'") as "[_ %Hl3']".
-        rewrite Hl3'. destruct (mod_get_is_Some l' t1) as [v Hv]...
-        iApply (wp_load_offset with "Arr")... iIntros "!> Arr".
-      iDestruct ("Close" with "Arch Arr") as "Dqst".
-      iDestruct (dqst_get_lb with "Dqst F'") as "%Lb'4".
-      iSplitL "● Sw Dqst A T B".
-      { iExists _,_,l4. fr. }
-      iModIntro. wp_pures.
+      iInv "Inv" as (l3 t3 b3 pop3) ">Invs".
+        iDestruct "Invs" as "(%Htb3 & ● & Sw & Dqst & A & T & B)".
+      iDestruct (dqst_get_frag with "Dqst") as "#F3".
+      iDestruct (dqst_get_lb with "Dqst F2") as "%Lb23".
+      destruct (mod_get_is_Some l3 t1) as [v Hv]...
+      iApply (wp_load_offset with "A"). 1: replace n with (length l3)...
+      iIntros "!> A".
+    iModIntro. iSplitL "● Sw Dqst A T B".
+    { iExists l3. fr. }
+    wp_pures.
 
-      (* 5. CAS *)
-      wp_bind (CmpXchg _ _ _)%E.
-      iInv "Inv" as (γera5 ca5 l5 t5 b5 pop5) ">Invs".
+    (* 5. CAS *)
+    wp_bind (CmpXchg _ _ _)%E.
+      iInv "Inv" as (l4 t4 b4 pop4) ">Invs".
         iDestruct "Invs" as "(%Htb5 & ● & Sw & Dqst & A & T & B)".
         iDestruct (dqst_get_frag with "Dqst") as "#F5".
-        iDestruct (dqst_get_lb with "Dqst F4") as "%Lb45".
-      destruct (decide (t1 = t5)); last first.
+        iDestruct (dqst_get_lb with "Dqst F3") as "%Lb34".
+      destruct (decide (t1 = t4)); last first.
       { (* fail *)
         wp_cmpxchg_fail. { intro NO. inversion NO... }
         iMod "AU" as (lau) "[Cont [_ Commit]]".
         iMod ("Commit" $! lau NONEV with "[Cont]") as "HΦ"...
         iModIntro. iSplitL "● Sw Dqst A T B".
-        { iExists _,_,l5. fr. }
+        { iExists l4. fr. }
         wp_pures. iApply "HΦ"...
       }
       (* success *)
-      subst t5. wp_cmpxchg_suc.
+      subst t4. wp_cmpxchg_suc.
         replace (Z.of_nat t1 + 1)%Z with (Z.of_nat (S t1))...
         assert (t1 = t2)... subst t2.
         assert (t1 = t3)... subst t3. assert (t1 < b3) as Htb13...
-        assert (t1 = t4)... subst t4. assert (t1 < b4) as Htb14...
-        assert (t1 = t')... subst t'. assert (t1 < b') as Htb1'...
-        assert (t1 < b5) as Htb15...
-        assert (mod_get l5 t1 = Some v) as Hv5.
-        { replace (mod_get l5 t1) with (mod_get l4 t1)...
-          - rewrite -Hv. symmetry. apply Lb'4...
-          - apply Lb45... }
+        assert (t1 < b4) as Htb15...
+        assert (mod_get l4 t1 = Some v) as Hv5.
+        { replace (mod_get l4 t1) with (mod_get l3 t1)... apply Lb34... }
       iMod "AU" as (lau) "[Cont [_ Commit]]".
         iDestruct "Cont" as (γq' γsw' γdqst') "[%Enc' ◯]". encode_agree Enc'.
         iDestruct (own_ea_agree with "● ◯") as "%Hlau". subst lau.
         rewrite (circ_slice_shrink_left _ _ _ v)...
-        iMod (own_ea_update (circ_slice l5 (S t1) b5)
-          with "● ◯") as "[● ◯]".
+        iMod (own_ea_update (circ_slice l4 (S t1) b4) with "● ◯") as "[● ◯]".
         iMod (dqst_auth_update with "Dqst") as "Dqst"...
-      iMod ("Commit" $! (circ_slice l5 (S t1) b5) (SOMEV v)
-        with "[◯]") as "HΦ"; fr.
-      iModIntro. iSplitL "● Sw Dqst A T B".
-      { iExists _,_,l5. fr. fr. }
-      wp_pures. iApply "HΦ"...
+      iMod ("Commit" $! (circ_slice l4 (S t1) b4) (SOMEV v) with "[◯]") as "HΦ"; fr.
+    iModIntro. iSplitL "● Sw Dqst A T B".
+    { iExists l4. fr. fr. }
+    wp_pures. iApply "HΦ"...
   Qed.
 End proof.
 
